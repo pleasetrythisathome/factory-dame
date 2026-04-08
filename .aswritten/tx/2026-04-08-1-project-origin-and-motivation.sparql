@@ -1,0 +1,242 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# Transaction provenance (default graph)
+INSERT DATA {
+  narr:Tx_20250115T120000Z a prov:Activity ;
+    prov:generatedAtTime "2025-01-15T12:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath "unknown" ;
+    narr:originRef "main" ;
+    dct:title "Scarlet Generative 3D Project Origin & Motivation" ;
+    prov:generated
+      narr:Sample_ScarletGenerative3D,
+      narr:Actor_Scarlet,
+      narr:Actor_Taylor,
+      narr:Actor_KarstenSchmidt,
+      narr:Narrative_AIUnlockingInaccessibleWork,
+      narr:Narrative_CreativeCounterweightToAswritten,
+      narr:Narrative_AIWorkflowSandbox,
+      narr:Narrative_ClojureFunctionalLineage,
+      narr:Narrative_TaylorCreativeIntersection,
+      narr:Claim_BambuSatUnused,
+      narr:Claim_TaylorReignitedInterest,
+      narr:Claim_AIEnablesComplexProjects,
+      narr:Claim_ClojureDeliberateChoice,
+      narr:Claim_TaylorSelfSufficientNot3DModeling,
+      narr:Obs_AIUnlockQuote,
+      narr:Obs_DumberFasterQuote,
+      narr:StyleObs_CasualFirstPerson,
+      narr:StyleObs_QuotedSelfVoice,
+      narr:StyleObs_ListStructureMotivations,
+      narr:StyleMetrics_ScarletGenerative3D .
+} ;
+
+# Extracted entities (named graph)
+INSERT DATA {
+  GRAPH narr:Tx_20250115T120000Z {
+
+    # ── Sample ──────────────────────────────────────────────────
+    narr:Sample_ScarletGenerative3D a narr:Sample ;
+      dct:title "Scarlet Generative 3D Project Origin & Motivation" ;
+      narr:inputLength 1847 ;
+      dct:description "Personal memory documenting Scarlet's motivations for a generative 3D printing project using Clojure/thi.ng, AI workflow experimentation, and creative intersection with Taylor." .
+
+    # ── Actors ──────────────────────────────────────────────────
+    narr:Actor_Scarlet a narr:Actor ;
+      skos:prefLabel "Scarlet" ;
+      skos:note "Founder of aswritten; owner of Bambu X1 Carbon; 13+ years professional Clojure developer; initiating generative 3D project as creative counterweight to aswritten." .
+
+    narr:Actor_Taylor a narr:Actor ;
+      skos:prefLabel "Taylor" ;
+      skos:note "Scarlet's creative partner; self-sufficient with the Bambu X1 Carbon printer; has not yet done 3D modeling; reignited Scarlet's interest in the printer through recent excitement." .
+
+    narr:Actor_KarstenSchmidt a narr:Actor ;
+      skos:prefLabel "Karsten Schmidt" ;
+      skos:note "Creator of thi.ng (Clojure generative/geometry library); credited as the person who got Scarlet into programming; influential lineage figure for this project." .
+
+    # ── Narratives ──────────────────────────────────────────────
+    narr:Narrative_AIUnlockingInaccessibleWork a narr:Narrative ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      narr:theme "AI as capability unlock for previously inaccessible creative and technical work" ;
+      skos:broader narr:TechnologiesSocialSystems ;
+      skos:note "Projects that were mathematically or technically out of reach — 3D Manhattan Voronoi tessellation, cochlear modeling — are now fluently achievable with AI assistance. This is framed as a major motivational pull, not merely a convenience." .
+
+    narr:Narrative_CreativeCounterweightToAswritten a narr:Narrative ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      narr:theme "Separate creative project as psychological counterweight to high-velocity startup work" ;
+      skos:broader narr:Strategy ;
+      skos:note "Aswritten demands speed and pragmatism ('dumber and faster'). The generative 3D project provides breathing room and a space for purely creative work unconstrained by business velocity." .
+
+    narr:Narrative_AIWorkflowSandbox a narr:Narrative ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      narr:theme "Generative project as low-risk sandbox for AI workflow and multi-agent experimentation" ;
+      skos:broader narr:TechnologiesSocialSystems ;
+      skos:note "Scarlet deliberately uses this project to push Claude Code practice, test multi-agent systems, and try coordinators (Martin's factory-factory, Conductor) without risking aswritten's velocity." .
+
+    narr:Narrative_ClojureFunctionalLineage a narr:Narrative ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      narr:theme "Return to Clojure/thi.ng functional generative lineage after 13+ years" ;
+      skos:broader narr:NoveltyOriginality ;
+      skos:note "Clojure is a deliberate choice rooted in Karsten Schmidt's thi.ng work, which originally drew Scarlet into programming. The project is partly about exploring what forms emerge from functional, procedural generative processes using thi.ng/geom." .
+
+    narr:Narrative_TaylorCreativeIntersection a narr:Narrative ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      narr:theme "Organic creative intersection with Taylor through shared interest in 3D printing and generative work" ;
+      skos:broader narr:ActorIncentiveAnalysis ;
+      skos:note "Not a formal shared project, but Scarlet wants a world of overlap where she can help Taylor with CAD and find creative intersection organically. Taylor is self-sufficient with the printer but has not yet done 3D modeling." .
+
+    # ── Claims ──────────────────────────────────────────────────
+    narr:Claim_BambuSatUnused a narr:Claim ;
+      narr:aboutNode narr:Actor_Scarlet ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "Scarlet bought a Bambu X1 Carbon last year but health issues, a move, and the intensity of building aswritten meant it sat largely unused." .
+
+    narr:Claim_TaylorReignitedInterest a narr:Claim ;
+      narr:aboutNode narr:Actor_Taylor ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "Taylor's recent excitement about the printer reignited Scarlet's interest in generative 3D work." .
+
+    narr:Claim_AIEnablesComplexProjects a narr:Claim ;
+      narr:aboutNode narr:Narrative_AIUnlockingInaccessibleWork ;
+      narr:hasConvictionLevel narr:Conviction_Boulder ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      narr:supports narr:Narrative_AIUnlockingInaccessibleWork ;
+      skos:note "Projects including 3D Manhattan Voronoi tessellation and cochlear modeling — previously inaccessible due to math/software complexity — are now achievable with AI assistance." .
+
+    narr:Claim_ClojureDeliberateChoice a narr:Claim ;
+      narr:aboutNode narr:Narrative_ClojureFunctionalLineage ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "Clojure is a deliberate choice, not just familiarity. Karsten Schmidt's thi.ng work is what got Scarlet into programming, and she wants to explore forms from functional/procedural generative processes using thi.ng/geom." .
+
+    narr:Claim_TaylorSelfSufficientNot3DModeling a narr:Claim ;
+      narr:aboutNode narr:Actor_Taylor ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "Taylor is self-sufficient with the printer but hasn't done 3D modeling yet — creating an opportunity for Scarlet to help with CAD." .
+
+    # ── Observations ────────────────────────────────────────────
+    narr:Obs_AIUnlockQuote a narr:Observation ;
+      skos:broader narr:Signals ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "Verbatim articulation of AI-as-unlock thesis from Scarlet" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerative3D ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 1199 ;
+          oa:end 1393
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "A lot of the projects that were previously kind of over my head or that I was frustrated by not really being able to get all the way to with the software component" ;
+          oa:prefix "\"" ;
+          oa:suffix " or the generative output component are now something that I could do much more fluently with AI."
+        ]
+      ] .
+
+    narr:Obs_DumberFasterQuote a narr:Observation ;
+      skos:broader narr:StrategyOverview ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "Scarlet's candid framing of aswritten's operating mode — speed over elegance" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerative3D ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 487 ;
+          oa:end 510
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "dumber and faster" ;
+          oa:prefix "sometimes means doing things \"" ;
+          oa:suffix ".\""
+        ]
+      ] .
+
+    # ── Style Observations ──────────────────────────────────────
+    narr:StyleObs_CasualFirstPerson a narr:StyleObservation ;
+      skos:broader narr:FirstPerson ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "third-person-about-self narrative voice: document refers to Scarlet in third person throughout, creating a reflective, slightly distanced register" ;
+      rdf:value false ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerative3D ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 0 ;
+          oa:end 120
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Scarlet bought a Bambu X1 Carbon last year but health issues, a move, and the intensity of building aswritten" ;
+          oa:prefix "" ;
+          oa:suffix " meant it sat largely unused."
+        ]
+      ] .
+
+    narr:StyleObs_QuotedSelfVoice a narr:StyleObservation ;
+      skos:broader narr:IdiolectPhrasing ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "embedded first-person verbatim quote within third-person document — signals the document is a transcribed or lightly edited spoken reflection" ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerative3D ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 1150 ;
+          oa:end 1400
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "A lot of the projects that were previously kind of over my head" ;
+          oa:prefix "" ;
+          oa:suffix " or that I was frustrated by not really being able to get all the way"
+        ]
+      ] .
+
+    narr:StyleObs_ListStructureMotivations a narr:StyleObservation ;
+      skos:broader narr:GrammarSyntax ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      skos:note "H2-headed enumerated motivation structure — each motivation gets its own named section, creating a parallel list architecture that signals deliberate, multi-factor reasoning rather than a single driving impulse" ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerative3D ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 390 ;
+          oa:end 470
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "A creative project that isn't aswritten" ;
+          oa:prefix "## " ;
+          oa:suffix "\n\nScarlet wants something purely creative"
+        ]
+      ] .
+
+    # ── Style Metrics ───────────────────────────────────────────
+    narr:StyleMetrics_ScarletGenerative3D a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_ScarletGenerative3D ;
+      narr:AverageSentenceLength 22 ;
+      narr:ActiveVoiceRatio "0.78"^^xsd:decimal ;
+      narr:JargonDensity "0.12"^^xsd:decimal ;
+      skos:note "Conversational-professional register. Moderate sentence length with occasional long embedded clauses (especially in the AI unlock section). Active voice dominant. Jargon is domain-specific (Clojure, thi.ng/geom, Voronoi, cochlear, multi-agent) rather than corporate. Third-person narration with one embedded first-person verbatim quote." .
+
+  }
+}
