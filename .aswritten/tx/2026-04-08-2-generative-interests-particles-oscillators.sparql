@@ -1,0 +1,142 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa: <http://www.w3.org/ns/oa#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+# Transaction provenance
+INSERT DATA {
+  narr:Tx_20250520T100000Z a prov:Activity ;
+    prov:generatedAtTime "2025-05-20T10:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2025-05-20-generative-interests.md" ;
+    narr:originRef "main" ;
+    prov:generated narr:Sample_ScarletGenerativeInterests_20250520, 
+                   narr:Narrative_ParticleSystemsEmergence,
+                   narr:Narrative_NonlinearOscillatorNetworks,
+                   narr:Claim_VoronoiAsDerivation,
+                   narr:Claim_OscillatorNetworkApplication,
+                   narr:Obs_ParticleSystemsFoundation,
+                   narr:Obs_OscillatorNetworkReference,
+                   narr:Obs_FirstPrintsTarget,
+                   narr:StyleObs_TechnicalPrecision,
+                   narr:StyleObs_HierarchicalStructure,
+                   narr:StyleObs_CitingResearch,
+                   narr:StyleMetrics_ScarletGenerativeInterests .
+} ;
+
+# Extracted entities
+INSERT DATA {
+  GRAPH narr:Tx_20250520T100000Z {
+    narr:Sample_ScarletGenerativeInterests_20250520 a narr:Sample ;
+      dct:title "Generative Interests — Particle Systems, Emergent Structure, and Oscillator Networks" ;
+      narr:inputLength 1650 .
+
+    narr:Narrative_ParticleSystemsEmergence a narr:Narrative ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      skos:broader narr:TechnologiesSocialSystems ;
+      narr:theme "Particle systems and emergent behavior as generative foundation" ;
+      skos:note "Scarlet's core interest is in systems where individual agents produce emergent behavior, with structural forms like Voronoi being secondary derivations." .
+
+    narr:Narrative_NonlinearOscillatorNetworks a narr:Narrative ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      skos:broader narr:TechnologiesSocialSystems ;
+      narr:theme "Nonlinear oscillator networks for frequency-domain emergence" ;
+      skos:note "Using coupled nonlinear oscillator networks (cochlear dynamics) to drive generative forms in the frequency domain." .
+
+    narr:Claim_VoronoiAsDerivation a narr:Claim ;
+      narr:aboutNode narr:Narrative_ParticleSystemsEmergence ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      skos:note "Voronoi is a derivation from the deeper interest in particle systems, not the primary goal." .
+
+    narr:Claim_OscillatorNetworkApplication a narr:Claim ;
+      narr:aboutNode narr:Narrative_NonlinearOscillatorNetworks ;
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      skos:note "Oscillator networks with large parameter sets drive music visualization or textural/sculptural forms." .
+
+    narr:Obs_ParticleSystemsFoundation a narr:Observation ;
+      skos:broader narr:Signals ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ; oa:start 194 ; oa:end 260
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "Scarlet's entry into programming was through particle systems — specifically flocking simulations" ;
+        oa:prefix "## Particle Systems as Foundation\n\n" ;
+        oa:suffix " (boids, organic motion)."
+      ] .
+
+    narr:Obs_OscillatorNetworkReference a narr:Observation ;
+      skos:broader narr:TechnicalDocumentation ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ; oa:start 700 ; oa:end 825
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "using coupled nonlinear oscillator networks (inspired by Edward Large's cochlear dynamics research — Lerud, Kim, Almonte, Carney & Large, Hearing Research 2019)" ;
+        oa:prefix "linked interest: " ;
+        oa:suffix " to drive generative forms."
+      ] .
+
+    narr:Obs_FirstPrintsTarget a narr:Observation ;
+      skos:broader narr:Milestones ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ; oa:start 1445 ; oa:end 1515
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "A pendant light (Voronoi shade with CadQuery mechanical housing)" ;
+        oa:prefix "- " ;
+        oa:suffix "\n- Particle system derivatives"
+      ] .
+
+    narr:StyleObs_TechnicalPrecision a narr:StyleObservation ;
+      skos:broader narr:JargonPolicy ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerativeInterests_20250520 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 571 ; oa:end 610 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "Manhattan/Lp-metric Voronoi — alternative distance metrics" ]
+      ] ;
+      skos:note "High technical precision in naming mathematical derivations." .
+
+    narr:StyleObs_HierarchicalStructure a narr:StyleObservation ;
+      skos:broader narr:FlowCoherence ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerativeInterests_20250520 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 450 ; oa:end 465 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "- **Voronoi** —" ]
+      ] ;
+      skos:note "Use of bolded list items to define structural layers." .
+
+    narr:StyleObs_CitingResearch a narr:StyleObservation ;
+      skos:broader narr:CitationConventions ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_ScarletGenerativeInterests_20250520 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 1280 ; oa:end 1345 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "Reference: https://pmc.ncbi.nlm.nih.gov/articles/PMC6669083/" ]
+      ] ;
+      skos:note "Academic referencing style to ground generative concepts." .
+
+    narr:StyleMetrics_ScarletGenerativeInterests a narr:StyleMetrics ;
+      dct:source narr:Sample_ScarletGenerativeInterests_20250520 ;
+      skos:broader narr:StyleMetrics ;
+      narr:AverageSentenceLength 18 ;
+      narr:ActiveVoiceRatio 0.85 ;
+      narr:JargonDensity 0.18 ;
+      skos:note "Technical, structured, and research-oriented voice." .
+  }
+}
