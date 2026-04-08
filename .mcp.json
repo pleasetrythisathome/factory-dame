@@ -1,0 +1,8 @@
+{
+  "mcpServers" : {
+    "aswritten" : {
+      "type" : "http",
+      "url" : "https://api.aswritten.ai/mcp"
+    }
+  }
+}
