@@ -1,0 +1,121 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa: <http://www.w3.org/ns/oa#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+# Transaction provenance
+INSERT DATA {
+  narr:Tx_20260415T143000Z a prov:Activity ;
+    prov:generatedAtTime "2026-04-15T14:30:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-04-15-neurodynamics-engine.md" ;
+    narr:originRef "main" ;
+    prov:generated narr:Sample_NeurodynamicsEngine_20260415, narr:Claim_NRTImplementationWorking, narr:Actor_EdwardWLarge, narr:Actor_Oscilloscape, narr:StyleMetrics_NeurodynamicsEngine .
+} ;
+
+# Updates to existing entities
+DELETE {
+  GRAPH ?g {
+    narr:Claim_OscillatorNetworkApplication narr:hasConvictionLevel ?oldConviction .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260415T143000Z {
+    narr:Claim_OscillatorNetworkApplication narr:hasConvictionLevel narr:Conviction_Foundation ;
+      skos:note "Resolved: Oscillator networks with large parameter sets drive music visualization or textural/sculptural forms — now a working implementation." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Claim_OscillatorNetworkApplication narr:hasConvictionLevel ?oldConviction .
+  }
+} ;
+
+# New entities
+INSERT DATA {
+  GRAPH narr:Tx_20260415T143000Z {
+    narr:Sample_NeurodynamicsEngine_20260415 a narr:Sample ;
+      dct:title "Neurodynamics Engine — Project Overview and Feature Semantics" ;
+      narr:inputLength 12450 .
+
+    narr:Claim_NRTImplementationWorking a narr:Claim ;
+      narr:aboutNode narr:Narrative_NonlinearOscillatorNetworks ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_NeurodynamicsEngine_20260415 ;
+      skos:note "The engine ports Neural Resonance Theory equations directly into a working real-time audio-analysis system." .
+
+    narr:Actor_EdwardWLarge a narr:Actor ;
+      skos:prefLabel "Edward W. Large" ;
+      skos:note "Professor and researcher behind Neural Resonance Theory; founder of Oscilloscape, Inc." .
+
+    narr:Actor_Oscilloscape a narr:Actor ;
+      skos:prefLabel "Oscilloscape, Inc. (dba Oscillo Biosciences)" ;
+      skos:note "Commercial entity productizing Neural Resonance Theory." .
+
+    narr:Obs_NRTControversy a narr:Observation ;
+      skos:broader narr:Conflicts ;
+      dct:source narr:Sample_NeurodynamicsEngine_20260415 ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ; oa:start 11000 ; oa:end 11200
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "The critique reads sharper than typical academic disagreement because the framework is being commercialized." ;
+        oa:prefix "J.C. Kim is a paid employee. NRT isn't just a theory — it's productized. "
+      ] .
+
+    narr:StyleObs_TechnicalPrecision a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_NeurodynamicsEngine_20260415 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NeurodynamicsEngine_20260415 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 3540 ; oa:end 3630 ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "τ ż = z(α + iω + (β₁ + iδ₁)|z|² + ε(β₂ + iδ₂)|z|⁴ / (1 − ε|z|²)) + x(t)" ;
+          oa:prefix "canonical Hopf normal form from the paper's Fig. 2 caption: "
+        ]
+      ] .
+
+    narr:StyleObs_VerbatimInstruction a narr:StyleObservation ;
+      skos:broader narr:IdiolectPhrasing ;
+      dct:source narr:Sample_NeurodynamicsEngine_20260415 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NeurodynamicsEngine_20260415 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 4500 ; oa:end 4600 ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "use the testing framework as backpressure, design new tests for the new features to build out the full core platform, and iterate" ;
+          oa:prefix "And then, before I continued implementing features: "
+        ]
+      ] .
+
+    narr:StyleObs_MetaphoricalSignal a narr:StyleObservation ;
+      skos:broader narr:Metaphor ;
+      dct:source narr:Sample_NeurodynamicsEngine_20260415 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NeurodynamicsEngine_20260415 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 7200 ; oa:end 7250 ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "the \"inner voice\" signal" ;
+          oa:prefix "Phantom mask → ghost emitters that pulse in silence ("
+        ]
+      ] .
+
+    narr:StyleMetrics_NeurodynamicsEngine a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_NeurodynamicsEngine_20260415 ;
+      narr:AverageSentenceLength 18 ;
+      narr:ActiveVoiceRatio 0.85 ;
+      narr:JargonDensity 0.25 ;
+      skos:note "Highly technical, documentation-heavy register with significant use of mathematical notation and domain-specific jargon (NRT, GrFNN, Hopf normal form)." .
+  }
+}
