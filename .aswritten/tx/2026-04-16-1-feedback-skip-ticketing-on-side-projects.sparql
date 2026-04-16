@@ -1,0 +1,240 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# ── Transaction provenance (default graph) ──────────────────────────────────
+INSERT DATA {
+  narr:Tx_20260416T120000Z a prov:Activity ;
+    dct:title "Feedback: Skip ticketing / process overhead on factory-dame" ;
+    prov:generatedAtTime "2026-04-16T12:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-04-16-skip-ticketing-factory-dame.md" ;
+    narr:originRef "main" ;
+    prov:generated
+      narr:Sample_SkipTicketing_20260416,
+      narr:Narrative_ProcessMinimalismCreativeProjects,
+      narr:Claim_ScarletAntiTicketingPreference,
+      narr:Claim_InSessionTaskCreateOK,
+      narr:Claim_SessionBoundarySummaryNotTickets,
+      narr:Claim_AntiTicketingScopeCreativeOnly,
+      narr:Obs_ScarletAntiBacklogQuote,
+      narr:Obs_CreativeCounterweightAntiOverhead,
+      narr:Obs_InSessionTaskCreateRule,
+      narr:StyleObs_SkipTicketing_CasualRegister,
+      narr:StyleObs_SkipTicketing_BoldDirectives,
+      narr:StyleObs_SkipTicketing_VerbatimQuoteStyle,
+      narr:StyleMetrics_SkipTicketing .
+} ;
+
+# ── New entities (named graph) ───────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T120000Z {
+
+    # ── Sample ──────────────────────────────────────────────────────────────
+    narr:Sample_SkipTicketing_20260416 a narr:Sample ;
+      dct:title "Feedback: Skip ticketing / process overhead on factory-dame" ;
+      dct:description "Scarlet's explicit preference to skip persistent backlog/ticketing for the factory-dame neurodynamics engine project, with behavioral rules for how to handle task management going forward." ;
+      dct:created "2026-04-16"^^xsd:date ;
+      narr:inputLength 1847 .
+
+    # ── New Narrative: Process minimalism for creative projects ──────────────
+    narr:Narrative_ProcessMinimalismCreativeProjects a narr:Narrative ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:broader narr:OrganizationalChangeManual ;
+      narr:theme "Process minimalism as a deliberate feature of creative side projects" ;
+      skos:note "Scarlet explicitly rejects persistent ticketing, GitHub issues, and backlog artifacts for factory-dame. In-session task lists (TaskCreate) are acceptable as working-memory tools. Session boundaries are handled via conversation summaries, not tickets. This is scoped to the creative project only — aswritten and business projects retain structured task management." .
+
+    # ── Claims: Section 1 — The preference ──────────────────────────────────
+    narr:Claim_ScarletAntiTicketingPreference a narr:Claim ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_CreativeCounterweightToAswritten ;
+      skos:note "Scarlet explicitly declined an offer to create ~18 tickets in Backlog.md covering viz polish, Tier 2–4 features, and live audio. She asked to just proceed without persistent task management artifacts." .
+
+    # ── Claims: Section 3 — How to apply going forward ───────────────────────
+    narr:Claim_InSessionTaskCreateOK a narr:Claim ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      skos:note "In-session TaskCreate is still welcome when actively juggling multiple features during a build — it is a working-memory tool, not a planning artifact. The objection is specifically to persistent tickets for future work." .
+
+    narr:Claim_SessionBoundarySummaryNotTickets a narr:Claim ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      skos:note "At session boundaries, summarize in conversation ('what's done / what's next') rather than creating tickets. Thread continuity across sessions goes into an aswritten memory, not a backlog." .
+
+    narr:Claim_AntiTicketingScopeCreativeOnly a narr:Claim ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      skos:note "The anti-ticketing preference does NOT apply to aswritten or business projects — structured task management remains appropriate there. This is specifically scoped to the factory-dame creative side project." .
+
+    # ── Observations ─────────────────────────────────────────────────────────
+    narr:Obs_ScarletAntiBacklogQuote a narr:Observation ;
+      skos:broader narr:FeedbackLoops ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:note "Scarlet's verbatim pushback on backlog creation — casual, decisive, action-oriented register" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 280 ;
+        oa:end 390
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "meh maybe we should skip backlog - this project is supposed to be a fun side project and task management feels like work. just keep moving." ;
+        oa:prefix "Her words (2026-04-16):\n> " ;
+        oa:suffix "\n\nContext: I had offered"
+      ] .
+
+    narr:Obs_CreativeCounterweightAntiOverhead a narr:Observation ;
+      skos:broader narr:StrategyOverview ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:note "Explicit framing of why process minimalism fits the creative counterweight strategy" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 510 ;
+        oa:end 680
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "breathing room from the \"dumber and faster\" pragmatism that running a business demands" ;
+        oa:prefix "creative counterweight to aswritten: " ;
+        oa:suffix ". Aswritten needs process"
+      ] .
+
+    narr:Obs_InSessionTaskCreateRule a narr:Observation ;
+      skos:broader narr:ProcessPolicyUpdates ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:note "Distinction between acceptable in-session working-memory tools vs. rejected persistent planning artifacts" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 900 ;
+        oa:end 1018
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "In-session TaskCreate is still welcome when actively juggling multiple features during a build — it's a working-memory tool, not a planning artifact." ;
+        oa:prefix "\n- **" ;
+        oa:suffix "\n- **At session boundaries"
+      ] .
+
+    # ── Style Observations ───────────────────────────────────────────────────
+    narr:StyleObs_SkipTicketing_CasualRegister a narr:StyleObservation ;
+      skos:broader narr:RegisterFormality ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:note "casual-direct; Scarlet's verbatim quote uses lowercase, filler ('meh'), and imperative ('just keep moving') — sharply informal against the otherwise structured markdown document" ;
+      rdf:value false ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_SkipTicketing_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 280 ;
+          oa:end 390
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "meh maybe we should skip backlog - this project is supposed to be a fun side project" ;
+          oa:prefix "> " ;
+          oa:suffix " and task management"
+        ]
+      ] .
+
+    narr:StyleObs_SkipTicketing_BoldDirectives a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:note "Behavioral rules are formatted as bold imperative directives ('Do NOT propose', 'In-session TaskCreate is still welcome', 'This does NOT apply') — authoritative, policy-document register for the 'how to apply' section" ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_SkipTicketing_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 820 ;
+          oa:end 870
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Do NOT propose creating Backlog.md tickets, GitHub issues, or other persistent task-management artifacts" ;
+          oa:prefix "- **" ;
+          oa:suffix " for this project"
+        ]
+      ] .
+
+    narr:StyleObs_SkipTicketing_VerbatimQuoteStyle a narr:StyleObservation ;
+      skos:broader narr:CitationConventions ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:note "Verbatim quote is set off with blockquote markdown and attributed with a parenthetical date stamp ('Her words (2026-04-16)') — a recurring citation convention in aswritten memories" ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_SkipTicketing_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 240 ;
+          oa:end 280
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Her words (2026-04-16):" ;
+          oa:prefix "\n\n**" ;
+          oa:suffix "\n> \""
+        ]
+      ] .
+
+    # ── Style Metrics ────────────────────────────────────────────────────────
+    narr:StyleMetrics_SkipTicketing a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_SkipTicketing_20260416 ;
+      skos:note "Mixed register: structured policy-document prose (bold directives, H2 sections) with an embedded casual verbatim quote. Active voice dominant in directives. Moderate jargon (TaskCreate, Backlog.md, factory-dame, neurodynamics engine). Short-to-medium sentences in the rules section; longer embedded clauses in the 'bigger picture' section." ;
+      narr:AverageSentenceLength 19 ;
+      narr:ActiveVoiceRatio "0.82"^^xsd:decimal ;
+      narr:JargonDensity "0.09"^^xsd:decimal .
+
+  }
+} ;
+
+# ── UPDATE: Narrative_CreativeCounterweightToAswritten ──────────────────────
+# Memory explicitly extends this narrative with anti-overhead/process-minimalism
+# as a named, deliberate feature — not just implied breathing room.
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T120000Z {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note "Aswritten demands speed and pragmatism ('dumber and faster'). The generative 3D project provides breathing room and a space for purely creative work unconstrained by business velocity. Explicitly: process overhead (ticketing, backlog, GitHub issues) is unwelcome here — the absence of task management is a deliberate feature, not an oversight. Scarlet declined ~18 offered tickets (2026-04-16) and asked to just keep moving." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note ?oldNote .
+  }
+} ;
+
+# ── UPDATE: Narrative_AIWorkflowSandbox ─────────────────────────────────────
+# Memory explicitly states this project is about discovering which rituals
+# are welcome vs. unwelcome — a new, named dimension of the sandbox concept.
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_AIWorkflowSandbox skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T120000Z {
+    narr:Narrative_AIWorkflowSandbox skos:note "Scarlet deliberately uses this project to push Claude Code practice, test multi-agent systems, and try coordinators (Martin's factory-factory, Conductor) without risking aswritten's velocity. The sandbox dimension explicitly includes discovering which collaboration rituals are welcome vs. unwelcome — e.g., in-session TaskCreate is fine; persistent backlog tickets are not. The project surfaces what AI-human creative collaboration actually needs vs. what business process imposes." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_AIWorkflowSandbox skos:note ?oldNote .
+  }
+}
