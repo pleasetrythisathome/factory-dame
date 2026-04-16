@@ -1,0 +1,338 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# ── Transaction provenance (default graph) ──────────────────────────────────
+INSERT DATA {
+  narr:Tx_20250601T120000Z a prov:Activity ;
+    dct:title "NRT vs DAW/MIR and Eurorack: neurodynamics engine positioning" ;
+    prov:generatedAtTime "2025-06-01T12:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath "unknown" ;
+    narr:originRef "main" ;
+    prov:generated
+      narr:Sample_NRTvsDAW_Positioning,
+      narr:Narrative_NRTAsDynamicalSystemsAlternative,
+      narr:Narrative_AnalysisIsSynthesis,
+      narr:Claim_NRTNoFixedProfile,
+      narr:Claim_NRTPhaseNotMagnitude,
+      narr:Claim_NRTGridFreeTempo,
+      narr:Claim_NRTPhantomFundamentalEmergent,
+      narr:Claim_NRTAnalysisIsSynthesis,
+      narr:Claim_NRTMotorLayerRealEntrainment,
+      narr:Claim_ExtractorsThinRollups,
+      narr:Claim_EurorackNoNRTAnalog,
+      narr:Claim_MIRingsClosestSpirit,
+      narr:Obs_ScarletQuestionDAWComparison,
+      narr:Obs_DAWPipelineLinearGridSnapshot,
+      narr:Obs_EurorackSyncFromClock,
+      narr:Obs_NRTHebbianPitchLearning,
+      narr:Obs_AnalysisIsSynthesisODEs,
+      narr:Obs_ExtractorArgmax,
+      narr:StyleObs_TechnicalJargonDensity,
+      narr:StyleObs_NumberedDifferentiatorStructure,
+      narr:StyleObs_ComparativeAnalogy,
+      narr:StyleMetrics_NRTvsDAW .
+} ;
+
+# ── New entities (named graph) ───────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20250601T120000Z {
+
+    # ── Sample ───────────────────────────────────────────────────────────────
+    narr:Sample_NRTvsDAW_Positioning a narr:Sample ;
+      dct:title "NRT vs DAW/MIR and Eurorack: why the neurodynamics engine differs from conventional harmonic/rhythmic analysis" ;
+      dct:description "Positioning document written in response to Scarlet's question before task-004. Compares NRT-based perceptual feature extraction to DAW/MIR pipelines and Eurorack modules across key detection, tempo tracking, groove, and harmonic analysis. Establishes why extractors are thin rollups rather than signal-processing pipelines." ;
+      dct:created "2025-06-01"^^xsd:date ;
+      narr:inputLength 7800 .
+
+    # ── Narratives ────────────────────────────────────────────────────────────
+    narr:Narrative_NRTAsDynamicalSystemsAlternative a narr:Narrative ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:broader narr:ComparativeAnalyses ;
+      narr:theme "NRT analysis as a dynamical-systems alternative to statistical MIR, not a refinement of it" ;
+      skos:note "DAW/MIR pipelines (STFT, chromagram, Krumhansl-Schmuckler profiles, dynamic programming beat tracking) are linear, grid-assuming, and snapshot-based — statistical rules on top of a spectrogram. NRT replaces this entire paradigm with a network of nonlinear oscillators whose dynamical properties (phase locking, Hebbian learning, entrainment) directly encode tonal hierarchy, tempo, and consonance without fixed templates or grid assumptions." .
+
+    narr:Narrative_AnalysisIsSynthesis a narr:Narrative ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:broader narr:TechnologiesSocialSystems ;
+      narr:theme "Unified analysis/synthesis: the oscillator state that produces tempo and key IS the signal driving downstream generative output" ;
+      skos:note "In a DAW pipeline, tempo and key are metadata — data about the audio, decoupled from downstream processes. In NRT, the same oscillator state that produces tempo=92 is also the thing driving particle systems and 3D forms. There is no frame boundary between analysis and synthesis — they are the same set of ODEs integrating forward. This is the core bet behind factory-dame and the reason NRT matters specifically for this project vs. other generative-art engines." .
+
+    # ── Claims ───────────────────────────────────────────────────────────────
+    narr:Claim_NRTNoFixedProfile a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      skos:note "DAWs apply Krumhansl-Schmuckler — an empirical pitch-importance ranking from a 1982 study on Western listeners. NRT's Hebbian pitch W learns the tonal hierarchy from whatever music is playing. Non-Western scales, microtonal pieces, and implied-but-absent fundamentals all produce coherent output without retraining or template selection." .
+
+    narr:Claim_NRTPhaseNotMagnitude a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      skos:note "Chromagrams throw phase away. NRT's oscillators have phase, and that is where mode-locking lives. Consonance in NRT is not a lookup against an interval table — it is a measured dynamical property: whether two oscillators settle into a rational-ratio phase relationship. The system reads stability, not computed pairwise intervals." .
+
+    narr:Claim_NRTGridFreeTempo a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      skos:note "Conventional beat trackers snap to integer BPM. NRT's rhythm GrFNN lives at whatever continuous frequency wins entrainment — 1.37 Hz is fine. Polyrhythms, accelerandi, and non-4/4 meters emerge as multiple stable oscillators rather than as failures to fit a grid." .
+
+    narr:Claim_NRTPhantomFundamentalEmergent a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      skos:note "DAW analyzers model the missing fundamental explicitly (harmonic product spectrum, cepstrum). In NRT it falls out of the quintic nonlinearity in the oscillator dynamics — the system generates a 100Hz response from an input containing only 200/300/400 Hz, because that is what the ODEs do. This is closer to how the ear actually works." .
+
+    narr:Claim_NRTAnalysisIsSynthesis a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_AnalysisIsSynthesis ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_AnalysisIsSynthesis ;
+      skos:note "In a DAW pipeline, tempo and key are metadata — data about the audio, not coupled to anything downstream. In NRT, the same oscillator state that produces tempo=92 is also the thing driving the particle systems and 3D forms. There is no frame boundary between analysis and synthesis — they are the same set of ODEs integrating forward. This is the bet behind Narrative_NonlinearOscillatorNetworks and Narrative_ParticleSystemsEmergence." .
+
+    narr:Claim_NRTMotorLayerRealEntrainment a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      skos:note "Beat trackers predict the next beat by extrapolating recent history. NRT's motor layer (two-layer pulse network, test_two_layer_pulse.py) has an oscillator that has been entrained forward and continues oscillating during sensory silence. That is not extrapolation — it is a model of the motor-cortex prediction substrate continuing to run. This is the headline NRT claim that the test suite was designed to validate." .
+
+    narr:Claim_ExtractorsThinRollups a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_AnalysisIsSynthesis ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_AnalysisIsSynthesis ;
+      skos:note "The task-004 extractors are thin rollups — argmax, weighted sum, ratio histogram — because the hard work has already happened at the dynamical level. Key detection in a DAW is a 20-line correlation loop. Key detection in this engine is np.argmax(np.diag(w_pitch)) plus a pitch-class mapping. The reason it works is that the Hebbian dynamics have already discovered the tonal hierarchy; the extractor just reads it off." .
+
+    narr:Claim_EurorackNoNRTAnalog a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      skos:note "There is no NRT analyzer module in eurorack. Most modules generate rather than analyze external audio. Pitch analysis is rare; sync almost always comes from clock (DIN, MIDI, gate) — the module does not figure out tempo, the user tells it. If an NRT analyzer module existed it would likely require custom firmware on something like a MI hardware platform or Noise Engineering Versio." .
+
+    narr:Claim_MIRingsClosestSpirit a narr:Claim ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      narr:aboutNode narr:Narrative_NRTAsDynamicalSystemsAlternative ;
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      skos:note "Mutable Instruments Rings is the closest spiritual cousin to NRT in the eurorack world: a modal resonator excited by input that has its own internal resonance behavior. But Rings is synthesis, not analysis — the distinction is fundamental." .
+
+    # ── Observations ─────────────────────────────────────────────────────────
+    narr:Obs_ScarletQuestionDAWComparison a narr:Observation ;
+      skos:broader narr:FrictionFailure ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "Scarlet's verbatim question that prompted this positioning document, before starting task-004" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 352 ;
+        oa:end 480
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "out of curiosity before you do this, how do this whole approach compare to how most DAW or even eurorack modules might go about related harmonic and rhythmic analysis" ;
+        oa:prefix "Her words:\n\n> \"" ;
+        oa:suffix "\""
+      ] .
+
+    narr:Obs_DAWPipelineLinearGridSnapshot a narr:Observation ;
+      skos:broader narr:ComparativeAnalyses ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "Characterization of the entire DAW/MIR paradigm as linear, grid-assuming, and snapshot-based" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 1620 ;
+        oa:end 1720
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "linear, grid-assuming, snapshot-based. Fundamentally it is reading a spectrogram with statistical rules on top." ;
+        oa:prefix "All of this is **" ;
+        oa:suffix "\n\n## How Eurorack"
+      ] .
+
+    narr:Obs_EurorackSyncFromClock a narr:Observation ;
+      skos:broader narr:ComparativeAnalyses ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "Key structural difference: Eurorack sync is user-supplied, not extracted" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 2280 ;
+        oa:end 2380
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "Sync almost always comes from clock (DIN, MIDI, gate). The module doesn't figure out tempo — the user tells it." ;
+        oa:prefix "- **Sync almost always comes from clock** (" ;
+        oa:suffix "\n\nThere is no"
+      ] .
+
+    narr:Obs_NRTHebbianPitchLearning a narr:Observation ;
+      skos:broader narr:DesignTradeoffs ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "Core differentiator 1: Hebbian learning replaces fixed Krumhansl-Schmuckler profiles" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 2560 ;
+        oa:end 2720
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "NRT's Hebbian pitch W *learns* the tonal hierarchy from whatever music is playing. Non-Western scales, microtonal pieces, implied-but-absent fundamentals all produce coherent output" ;
+        oa:prefix "DAWs apply Krumhansl-Schmuckler — an empirical pitch-importance ranking from a 1982 study on Western listeners. " ;
+        oa:suffix " without retraining"
+      ] .
+
+    narr:Obs_AnalysisIsSynthesisODEs a narr:Observation ;
+      skos:broader narr:LeverageProfile ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "The headline claim: analysis and synthesis are the same ODE system — no frame boundary" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 3780 ;
+        oa:end 3980
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "There is no frame boundary between analysis and synthesis — they're the same set of ODEs integrating forward." ;
+        oa:prefix "In NRT, the same oscillator state that produces tempo=92 is also the thing driving the particle systems / 3D forms / synthesis. " ;
+        oa:suffix " This is the bet"
+      ] .
+
+    narr:Obs_ExtractorArgmax a narr:Observation ;
+      skos:broader narr:LeverageProfile ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "Concrete illustration of why extractors are thin: the Hebbian dynamics do the heavy lifting, the extractor is a single numpy call" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 4380 ;
+        oa:end 4540
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "Key detection in this engine is `np.argmax(np.diag(w_pitch))` plus a pitch-class mapping. The reason it works is that the Hebbian dynamics have already discovered the tonal hierarchy" ;
+        oa:prefix "Key detection in a DAW is a 20-line correlation loop. " ;
+        oa:suffix "; the extractor just reads it off."
+      ] .
+
+    # ── Style Observations ────────────────────────────────────────────────────
+    narr:StyleObs_TechnicalJargonDensity a narr:StyleObservation ;
+      skos:broader narr:JargonPolicy ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "High domain-specific jargon density: STFT, chromagram, Krumhansl-Schmuckler, GrFNN, YIN, cepstrum, quintic nonlinearity, 1V/oct CV. Jargon is technical/academic rather than corporate. Assumes reader familiarity with DSP and MIR." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NRTvsDAW_Positioning ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 780 ;
+          oa:end 920
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "STFT → chromagram (12 pitch-class energy bins per frame)" ;
+          oa:prefix "**Key detection**\n- " ;
+          oa:suffix "\n- Correlate chromagram"
+        ]
+      ] .
+
+    narr:StyleObs_NumberedDifferentiatorStructure a narr:StyleObservation ;
+      skos:broader narr:GrammarSyntax ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "The 'Where NRT differs' section uses a numbered list of 6 bold-headed differentiators, each with a compact thesis sentence followed by elaboration. This is a deliberate rhetorical structure for comparative positioning — parallel construction signals exhaustiveness." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NRTvsDAW_Positioning ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 2480 ;
+          oa:end 2560
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "1. **No fixed profile.** DAWs apply Krumhansl-Schmuckler" ;
+          oa:prefix "## Where NRT differs from both approaches\n\n" ;
+          oa:suffix " — an empirical pitch-importance"
+        ]
+      ] .
+
+    narr:StyleObs_ComparativeAnalogy a narr:StyleObservation ;
+      skos:broader narr:Analogy ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "Mutable Instruments Rings used as a concrete analogy to locate NRT in the eurorack conceptual space — 'closest spiritual cousin' is a deliberate hedged analogy that acknowledges similarity while asserting a categorical difference (synthesis vs. analysis)." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NRTvsDAW_Positioning ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 2180 ;
+          oa:end 2280
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Mutable Instruments Rings is the closest spiritual cousin to NRT: a modal resonator excited by input that has its own internal resonance behavior. But Rings is synthesis, not analysis." ;
+          oa:prefix "**Harmonic.** Filter banks, modal resonators. " ;
+          oa:suffix "\n- **Sync almost always"
+        ]
+      ] .
+
+    # ── Style Metrics ─────────────────────────────────────────────────────────
+    narr:StyleMetrics_NRTvsDAW a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_NRTvsDAW_Positioning ;
+      skos:note "Technical-authoritative register. Structured with H2 sections and bold sub-headers. Numbered list for the 6 differentiators. Mix of short declarative thesis sentences and longer elaborating clauses. High jargon density (DSP/MIR/eurorack domain). Active voice dominant in claims; passive occasionally in descriptions of conventional pipelines. Code literals (np.argmax, test_two_layer_pulse.py) embedded inline. Academic citation style (Ellis 2007, Krumhansl-Schmuckler 1982)." ;
+      narr:AverageSentenceLength "20"^^xsd:integer ;
+      narr:ActiveVoiceRatio "0.75"^^xsd:decimal ;
+      narr:JargonDensity "0.18"^^xsd:decimal .
+  }
+} ;
+
+# ── UPDATE: narr:Narrative_NonlinearOscillatorNetworks ──────────────────────
+# Memory explicitly names this narrative and expands its meaning with the
+# analysis-is-synthesis property and the comparative positioning context.
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_NonlinearOscillatorNetworks skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20250601T120000Z {
+    narr:Narrative_NonlinearOscillatorNetworks skos:note "Using coupled nonlinear oscillator networks (cochlear dynamics) to drive generative forms in the frequency domain. The NRT-based approach differs fundamentally from DAW/MIR pipelines: oscillators learn tonal hierarchy via Hebbian dynamics, encode consonance as phase-locking stability rather than interval lookup, and track tempo at continuous frequencies rather than integer BPM. Critically, the same oscillator state that produces analysis outputs (tempo, key, consonance) IS the signal driving downstream particle systems and 3D forms — there is no frame boundary between analysis and synthesis." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_NonlinearOscillatorNetworks skos:note ?oldNote .
+  }
+} ;
+
+# ── UPDATE: narr:Narrative_ParticleSystemsEmergence ─────────────────────────
+# Memory's key claims section explicitly states the analysis-is-synthesis
+# property is "the bet behind Narrative_ParticleSystemsEmergence" — expanding
+# the note to reflect this coupling.
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_ParticleSystemsEmergence skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20250601T120000Z {
+    narr:Narrative_ParticleSystemsEmergence skos:note "Scarlet's core interest is in systems where individual agents produce emergent behavior, with structural forms like Voronoi being secondary derivations. The NRT analysis-is-synthesis property is the foundational bet here: the oscillator network that extracts tempo, key, and consonance from audio IS the same system driving particle behavior and emergent 3D forms — no separate analysis pipeline, no metadata handoff." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_ParticleSystemsEmergence skos:note ?oldNote .
+  }
+}
