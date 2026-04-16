@@ -1,0 +1,292 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# ── Transaction provenance (default graph) ──────────────────────────────────
+INSERT DATA {
+  narr:Tx_20260416T180000Z a prov:Activity ;
+    dct:title "Feedback: light structure is welcome on factory-dame — the earlier memory overstated it" ;
+    prov:generatedAtTime "2026-04-16T18:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-04-16-2-feedback-light-structure-factory-dame.md" ;
+    narr:originRef "main" ;
+    prov:generated
+      narr:Sample_LightStructureCorrection_20260416,
+      narr:Claim_LightTouchNotZeroTouch,
+      narr:Claim_HandoffDocApprovedForm,
+      narr:Claim_StructureEarnsItsKeep,
+      narr:Claim_NoTicketInflation,
+      narr:Obs_ScarletCorrectionQuote,
+      narr:Obs_HandoffDocEndorsement,
+      narr:Obs_TicketInflationRule,
+      narr:StyleObs_CasualCorrectiveRegister,
+      narr:StyleObs_BoldDirectiveSyntax,
+      narr:StyleObs_VerbatimQuoteEmbedded,
+      narr:StyleMetrics_LightStructureCorrection .
+} ;
+
+# ── New Sample ───────────────────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T180000Z {
+    narr:Sample_LightStructureCorrection_20260416
+      a narr:Sample ;
+      dct:title "Feedback: light structure is welcome on factory-dame — the earlier memory overstated it" ;
+      dct:description "Scarlet's correction of the earlier anti-ticketing memory: reframes the rule from near-absolute prohibition to light-touch preference, endorses handoff docs and occasional tickets when they carry real weight." ;
+      dct:created "2026-04-16"^^xsd:date ;
+      narr:inputLength 2841 .
+  }
+} ;
+
+# ── UPDATE: Claim_ScarletAntiTicketingPreference ─────────────────────────────
+# Memory explicitly softens this from Foundation to Stake and rewrites the note.
+DELETE {
+  GRAPH ?g {
+    narr:Claim_ScarletAntiTicketingPreference
+      narr:hasConvictionLevel ?oldLevel ;
+      skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T180000Z {
+    narr:Claim_ScarletAntiTicketingPreference
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      skos:note "Scarlet declines reflexive or high-volume ticketing for factory-dame — not any ticketing. She explicitly corrected the earlier memory ('that memory about not doing backlog was way overplayed'), endorsed the handoff doc and 10 backlog tickets from the prior session, and chose to keep them rather than rebase them out. The objection is to ticket inflation and process-driven workflows, not to structure that earns its keep." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Claim_ScarletAntiTicketingPreference
+      narr:hasConvictionLevel ?oldLevel ;
+      skos:note ?oldNote .
+  }
+} ;
+
+# ── UPDATE: Claim_SessionBoundarySummaryNotTickets ───────────────────────────
+# Memory adds handoff docs as an approved session-boundary form alongside summaries.
+DELETE {
+  GRAPH ?g {
+    narr:Claim_SessionBoundarySummaryNotTickets skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T180000Z {
+    narr:Claim_SessionBoundarySummaryNotTickets
+      skos:note "At session boundaries, summarize in conversation ('what's done / what's next') rather than creating tickets. Thread continuity goes into an aswritten memory, not a backlog. Handoff docs between sessions are now also an approved form — the neurodynamics-handoff-2026-04-16.md worked and memories and handoff docs can coexist." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Claim_SessionBoundarySummaryNotTickets skos:note ?oldNote .
+  }
+} ;
+
+# ── UPDATE: Narrative_ProcessMinimalismCreativeProjects ──────────────────────
+# Memory reframes from "explicitly rejects" to "light touch, not zero touch".
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_ProcessMinimalismCreativeProjects
+      skos:note ?oldNote ;
+      narr:theme ?oldTheme .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T180000Z {
+    narr:Narrative_ProcessMinimalismCreativeProjects
+      skos:note "Scarlet's preference for factory-dame is light touch, not zero touch. She declines reflexive ticketing, velocity tracking, and process-driven workflows that import the wrong energy into a creative project. But structure is welcome when it earns its keep: handoff docs between sessions, tickets for work actually on-deck, decision docs for non-trivial calls. The earlier 'Do NOT propose creating Backlog.md tickets' directive is superseded. In-session TaskCreate remains acceptable as a working-memory tool. Scoped to factory-dame only — aswritten and business projects retain structured task management." ;
+      narr:theme "Light-touch process minimalism as deliberate feature of creative side projects — structure welcome when it earns its keep" .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_ProcessMinimalismCreativeProjects
+      skos:note ?oldNote ;
+      narr:theme ?oldTheme .
+  }
+} ;
+
+# ── New Claims ───────────────────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T180000Z {
+
+    narr:Claim_LightTouchNotZeroTouch
+      a narr:Claim ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "Scarlet's corrected stance: she doesn't want a ticketed workflow driving factory-dame, but she doesn't object to structure when it earns its keep. The earlier memory overstated the prohibition. Light touch is the rule; zero touch was never the intent." ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:challenges narr:Claim_ScarletAntiTicketingPreference .
+
+    narr:Claim_HandoffDocApprovedForm
+      a narr:Claim ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "The handoff doc at backlog/docs/neurodynamics-handoff-2026-04-16.md and the 10 backlog tickets (task-001 … task-010) created in the prior session were endorsed by Scarlet — she chose to keep them rather than rebase them out. Handoff docs between sessions are now an explicitly approved form. Memories and handoff docs can coexist." ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_ProcessMinimalismCreativeProjects .
+
+    narr:Claim_StructureEarnsItsKeep
+      a narr:Claim ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "The test for whether to create structure on factory-dame is 'does this carry weight later?' — not 'is this Backlog.md?'. Handoff docs, tickets for work actually on-deck, and decision docs for non-trivial calls all pass the test. Reflexive ticketing of every idea does not." ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_ProcessMinimalismCreativeProjects .
+
+    narr:Claim_NoTicketInflation
+      a narr:Claim ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "Don't propose creating 18 tickets for every idea downstream. Propose one ticket when it's warranted. The spirit the earlier memory got right: velocity tracking and reflexive ticketing of every future idea would import the wrong energy into a creative counterweight project." ;
+      narr:aboutNode narr:Narrative_ProcessMinimalismCreativeProjects ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_CreativeCounterweightToAswritten .
+  }
+} ;
+
+# ── Observations ─────────────────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T180000Z {
+
+    narr:Obs_ScarletCorrectionQuote
+      a narr:Observation ;
+      skos:broader narr:FeedbackLoops ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "Scarlet's verbatim correction of the earlier memory — casual, decisive, self-aware register" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 362 ;
+        oa:end 494
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "that memory about not doing backlog was way overplayed. this is just a fun project and i won't want to create a ton of structure but some is important and helpful sometimes, like the ticket for the handoff" ;
+        oa:prefix "Scarlet corrected the framing:\n\n> " ;
+        oa:suffix "\"\n\n## What the real stance is"
+      ] .
+
+    narr:Obs_HandoffDocEndorsement
+      a narr:Observation ;
+      skos:broader narr:ProcessPolicyUpdates ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "Concrete evidence of Scarlet endorsing structure: she kept the handoff doc and 10 tickets rather than rebasing them out" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 660 ;
+        oa:end 847
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "the handoff doc at `backlog/docs/neurodynamics-handoff-2026-04-16.md` and the 10 backlog tickets (`task-001` … `task-010`) created in the prior session. She chose to keep them rather than rebase them out" ;
+        oa:prefix "**Concrete example she endorsed:** " ;
+        oa:suffix ", after seeing the contradiction with the older memory."
+      ] .
+
+    narr:Obs_TicketInflationRule
+      a narr:Observation ;
+      skos:broader narr:ProcessPolicyUpdates ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "The 'earns its keep' test as the operative heuristic for structure decisions" ;
+      oa:hasSelector [
+        a oa:TextPositionSelector ;
+        oa:start 1518 ;
+        oa:end 1617
+      ] ;
+      oa:hasSelector [
+        a oa:TextQuoteSelector ;
+        oa:exact "The test is \"does this carry weight later?\", not \"is this Backlog.md?\"" ;
+        oa:prefix "Handoff docs between sessions, tickets for work that's actually on-deck, decision docs for non-trivial calls — all welcome. " ;
+        oa:suffix ".\n- **Still no ticket inflation.**"
+      ] .
+  }
+} ;
+
+# ── Style Observations ───────────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T180000Z {
+
+    narr:StyleObs_CasualCorrectiveRegister
+      a narr:StyleObservation ;
+      skos:broader narr:RegisterFormality ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "Embedded verbatim quote uses all-lowercase, no punctuation, casual spoken register — contrasts sharply with the structured policy prose surrounding it. Signals authenticity and informality of the correction." ;
+      rdf:value false ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LightStructureCorrection_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 362 ;
+          oa:end 494
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "that memory about not doing backlog was way overplayed. this is just a fun project" ;
+          oa:prefix "> " ;
+          oa:suffix " and i won't want to create a ton of structure"
+        ]
+      ] .
+
+    narr:StyleObs_BoldDirectiveSyntax
+      a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "Bold-prefixed directives ('**Light touch, not zero touch.**', '**Still no ticket inflation.**') create a policy-document register. Imperative mood with declarative framing. Authoritative but not bureaucratic." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LightStructureCorrection_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 519 ;
+          oa:end 563
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "**Light touch, not zero touch.**" ;
+          oa:prefix "- " ;
+          oa:suffix " Scarlet doesn't want a ticketed workflow"
+        ]
+      ] .
+
+    narr:StyleObs_VerbatimQuoteEmbedded
+      a narr:StyleObservation ;
+      skos:broader narr:Quotes ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:note "Blockquote used to embed Scarlet's verbatim correction, anchoring the policy reframe in direct speech. Rhetorical move: the casual quote does the heavy lifting of supersession without formal retraction language." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LightStructureCorrection_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 340 ;
+          oa:end 500
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "> \"that memory about not doing backlog was way overplayed." ;
+          oa:prefix "Scarlet corrected the framing:\n\n" ;
+          oa:suffix " this is just a fun project"
+        ]
+      ] .
+  }
+} ;
+
+# ── Style Metrics ────────────────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T180000Z {
+    narr:StyleMetrics_LightStructureCorrection
+      a narr:StyleMetrics ;
+      dct:source narr:Sample_LightStructureCorrection_20260416 ;
+      skos:broader narr:StyleMetrics ;
+      skos:note "Mixed register: structured policy-document prose (H2 sections, bold directives, bullet lists) with an embedded casual all-lowercase verbatim blockquote. Active voice dominant in directives. Moderate jargon (factory-dame, Backlog.md, TaskCreate, rebase). Short-to-medium sentences in rules sections; longer in 'What the real stance is'. Supersession language is precise and explicit." ;
+      narr:AverageSentenceLength "17"^^xsd:integer ;
+      narr:ActiveVoiceRatio "0.84"^^xsd:decimal ;
+      narr:JargonDensity "0.08"^^xsd:decimal .
+  }
+}
