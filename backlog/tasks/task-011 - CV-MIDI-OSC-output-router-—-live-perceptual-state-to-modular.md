@@ -4,6 +4,7 @@ title: CV/MIDI/OSC output router — live perceptual state to modular
 status: To Do
 assignee: []
 created_date: '2026-04-16 20:02'
+updated_date: '2026-04-16 21:48'
 labels:
   - engine
   - live
@@ -62,14 +63,56 @@ This is the spine that ties task-004 (extractors), task-005 (live audio), task-0
 - **Far:** custom embedded board with onboard DACs for CV. Daisy Seed at reduced network sizes (maybe), or STM32MP1-class SBC for full bank.
 
 ## Acceptance Criteria
-
-- [ ] #1 `nd-route` command runs alongside `nd-live`, subscribing to the live state stream
-- [ ] #2 Configurable routing: user maps extractor outputs (e.g. `tonic`) to output channels (e.g. `cv/0`, `midi/note`, `osc/...`)
-- [ ] #3 1V/oct tonic CV verified with a calibrated quantizer
-- [ ] #4 Analog clock trigger is jitter-free under steady-tempo input (< 5 ms drift over 30s)
-- [ ] #5 MIDI clock messages sync a second device at detected tempo
-- [ ] #6 OSC message schema matches the documented schema (task-010)
-- [ ] #7 Latency budget: audio-in → CV-out < 60 ms on a modest laptop
-- [ ] #8 Integration test with synthetic audio verifies CV values fall in expected voltage range
-- [ ] #9 Documentation: wiring diagram for ES-9 use case, example modular patch demonstrating tonic-quantizer sync
+<!-- AC:BEGIN -->
+- [ ] #1 #1 `nd-route` command runs alongside `nd-live`, subscribing to the live state stream
+- [ ] #2 #2 Configurable routing: user maps extractor outputs (e.g. `tonic`) to output channels (e.g. `cv/0`, `midi/note`, `osc/...`)
+- [ ] #3 #3 1V/oct tonic CV verified with a calibrated quantizer
+- [ ] #4 #4 Analog clock trigger is jitter-free under steady-tempo input (< 5 ms drift over 30s)
+- [ ] #5 #5 MIDI clock messages sync a second device at detected tempo
+- [ ] #6 #6 OSC message schema matches the documented schema (task-010)
+- [ ] #7 #7 Latency budget: audio-in → CV-out < 60 ms on a modest laptop
+- [ ] #8 #8 Integration test with synthetic audio verifies CV values fall in expected voltage range
+- [ ] #9 #9 Documentation: wiring diagram for ES-9 use case, example modular patch demonstrating tonic-quantizer sync
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## Deep-first phased plan (per 2026-04-16 feedback)
+
+Each phase is a **standalone novel capability built to publishable depth**. Not "shallow first, deepen later" — that failure mode is explicitly documented in the aswritten memory `2026-04-16-5-feedback-novelty-and-deep-first-engineering`. Each phase is shippable as its own novel artifact.
+
+### Phase 1 — Voice identity to publishable depth
+
+The primitive: decompose the NRT pitch GrFNN state into a dynamic set of coherent voice clusters, each with a stable identity tracked across time. No fixed voice count, no band-based shortcuts — real phase-coherence clustering on real music.
+
+**In scope:**
+- Amplitude-envelope correlation across active pitch oscillators
+- Integer-ratio PLV for harmonic relationships (fundamental + harmonics in one voice)
+- Connected-components clustering → dynamic voice count
+- Hungarian matching across frames for voice identity persistence
+- Edge cases: silence, unison, voice split, voice merge, transients, noise floor
+- Real-audio validation (Flights + at least one other track)
+- Viewer: colored voice overlay on pitch heatmap
+- OSC `/voice/*` namespace
+- Comprehensive test suite covering all edge cases
+
+**Out of scope for P1:**
+- Per-voice rhythm association (that's P2)
+- Per-voice motor coupling (that's P3)
+- CV/MIDI trigger emission (router-level, orthogonal)
+
+### Phase 2 — Per-voice rhythm association
+
+For each pitch voice from P1, identify the rhythm oscillator(s) entrained to it. Expose per-voice clock rate, beat phase, subdivision ratio relative to master beat. Tested on multiple tracks; handles polyrhythmic cases.
+
+### Phase 3 — Per-voice motor coupling
+
+Read existing motor GrFNN state as multi-voice (associate motor oscillator clusters with pitch voices). OR if reading proves insufficient, introduce per-voice motor GrFNN pool. Phase decision after P2 empirical findings.
+
+### Phase 4 — Router (the original task-011 scope)
+
+CV/MIDI/OSC router consuming P1-P3 state, producing analog clock triggers, 1V/oct tonic, CV lanes per voice, MIDI notes with MPE per voice. Existing task-011 description still applies; now built on top of the voice primitives rather than a flat feature stream.
+<!-- SECTION:PLAN:END -->
+
+<!-- AC:END -->
