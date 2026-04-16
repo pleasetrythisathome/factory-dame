@@ -1,0 +1,6 @@
+# Audio files and derived state are gitignored — regenerable, plus copyright.
+# Tests reference these by relative path and skip gracefully when missing.
+*
+!.gitignore
+!README.md
+!tracklist.toml

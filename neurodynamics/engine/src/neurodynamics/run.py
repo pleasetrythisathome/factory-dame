@@ -11,6 +11,7 @@ import io
 import shutil
 import subprocess
 import tomllib
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +30,7 @@ from .perceptual import (
     extract_tempo,
 )
 from .state_log import StateLog
+from .voices import VoiceClusteringConfig, VoiceState, extract_voices
 
 # Formats libsndfile handles directly. Everything else (mp3, m4a, opus, webm…)
 # is routed through ffmpeg.
@@ -195,7 +197,20 @@ def run(config_path: Path, audio_override: Path | None = None,
     # Mutable state threaded through the snapshot loop. prev_peak_idx
     # carries the persistence hint for the rhythm structure extractor
     # so the main-beat BPM doesn't flip between adjacent oscillators.
-    osc_state: dict = {"prev_peak_idx": None}
+    # Voice state carries tracked voice identities across frames.
+    # pitch_buf holds a rolling 2.5 s window of pitch snapshots so
+    # voice extraction has amplitude-envelope history to correlate
+    # over — a single-snapshot instantaneous read can't identify
+    # voices.
+    voice_cfg = VoiceClusteringConfig()
+    voice_buf_len = max(int(snap_hz * 2.5), 16)
+    osc_state: dict = {
+        "prev_peak_idx": None,
+        "voice_state": VoiceState(),
+        "pitch_buf": deque(maxlen=voice_buf_len),
+        "voice_stride": max(1, int(snap_hz / 20)),  # emit voices at ~20 Hz
+        "snap_count": 0,
+    }
     phantom_cfg = cfg["phantom"]
 
     # Optional W history. Logged only when w_snapshot_hz > 0 AND a layer
@@ -294,6 +309,31 @@ def run(config_path: Path, audio_override: Path | None = None,
                 "consonance": extract_consonance(sw),
             })
             osc.send_rhythm_structure(rhythm)
+
+            # Voice extraction + broadcast. Maintains a rolling buffer
+            # of pitch_z snapshots so envelope-correlation clustering
+            # has history to work with. Emitted at 1/voice_stride the
+            # snapshot rate — 20 Hz is plenty for modular consumers.
+            osc_state["pitch_buf"].append(pitch_net.z.copy())
+            osc_state["snap_count"] += 1
+            if (osc_state["snap_count"] % osc_state["voice_stride"] == 0
+                    and len(osc_state["pitch_buf"]) >= 8):
+                pitch_hist = np.stack(list(osc_state["pitch_buf"]))
+                voice_sw = StateWindow(
+                    pitch_z=pitch_hist,
+                    pitch_freqs=pitch_net.f,
+                    rhythm_z=rhythm_net.z,
+                    rhythm_freqs=rhythm_net.f,
+                    frame_hz=float(snap_hz),
+                    w_pitch=pitch_net.W,
+                )
+                osc_state["voice_state"] = extract_voices(
+                    voice_sw,
+                    prev_state=osc_state["voice_state"],
+                    config=voice_cfg,
+                )
+                osc.send_voices(osc_state["voice_state"])
+
             next_snap += snap_interval
 
         # Hebbian weight snapshot — independent cadence from the state log.

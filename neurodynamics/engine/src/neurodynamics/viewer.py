@@ -45,6 +45,22 @@ _PHANTOM_INK = "#7A2B2B"       # phantom tint — oxidized red
 _RESIDUAL_INK = "#C43C1D"      # residual flash — editorial red
 _GHOST_INK = "#2D5F4C"         # ghost playhead — muted green, stands on cream
 
+# Voice-identity palette — cycled by voice id mod len. Feltron-adjacent,
+# intentionally distinct on cream. Keep density moderate so overlays
+# never outshine the heatmap data beneath.
+_VOICE_PALETTE = [
+    "#2A3F66",  # indigo
+    "#C08E42",  # ochre
+    "#4A6B3A",  # forest
+    "#B05F2A",  # terracotta
+    "#5B3A5E",  # eggplant
+    "#2E6E6A",  # teal
+    "#8C4A2A",  # sienna
+    "#AB6272",  # dusty rose
+    "#6F5E2A",  # olive
+    "#3D5878",  # slate blue
+]
+
 from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
 
 # Paper-to-ink sequential cmaps per layer — narrow hue, rises from the
@@ -110,6 +126,7 @@ from .perceptual import (
     extract_tempo,
 )
 from .run import _NATIVE_EXTS, state_path_for
+from .voices import VoiceClusteringConfig, VoiceState, extract_voices
 
 WINDOW_S = 12.0       # heatmap time window (±6 s around playhead)
 WATERFALL_N = 30      # number of stacked slices in the waterfall ridges
@@ -577,6 +594,19 @@ def run(config_path: Path, audio_override: Path | None = None,
     ax_p.add_collection(lock_lines_p)
     ax_r.add_collection(lock_lines_r)
 
+    # Voice-identity brackets — vertical segments drawn just past the
+    # right edge of the time window, spanning each active voice's
+    # oscillator range. Color cycles by voice id mod palette length
+    # so distinct voices are visually distinct; persistent IDs keep
+    # colors stable across frames.
+    # Horizontal ticks at the right edge of the pitch heatmap, one
+    # per oscillator member of an active voice. Voice color cycles by
+    # id so identity is visually consistent across frames.
+    voice_lines_p = LineCollection([], colors=[], linewidths=4.5,
+                                    alpha=0.95, zorder=6,
+                                    capstyle="butt")
+    ax_p.add_collection(voice_lines_p)
+
     # Compact legend in the figure header explaining the ratio palette.
     from matplotlib.patches import Patch
     legend_patches = [
@@ -836,7 +866,13 @@ def run(config_path: Path, audio_override: Path | None = None,
     print("Precomputing perceptual features…")
     t_feat_start = time.monotonic()
     feat_stride = max(1, int(round(snap_hz / FEATURE_HZ)))
-    feat_half = max(1, int(snap_hz * 2.5))  # 2.5s half-window → 5s total
+    # Feature window kept tight (1s half → 2s total) because rhythm
+    # peak picking destabilizes with a wider window — the mean amp
+    # profile over too much history shifts the peak oscillator.
+    feat_half = max(1, int(snap_hz * 1.0))
+    # Voices want more history for envelope correlation to be
+    # meaningful — 2.5s half-window → 5s total.
+    voice_half = max(feat_half, int(snap_hz * 2.5))
     n_snap = pamp.shape[0]
     # We need complex state for rhythm structure (phase matters), so
     # rebuild rhythm_z from amp·exp(i·phase). Pitch state still uses
@@ -877,6 +913,49 @@ def run(config_path: Path, audio_override: Path | None = None,
     features_hz_effective = snap_hz / feat_stride
     print(f"  precomputed in {time.monotonic() - t_feat_start:.1f}s "
           f"({len(feat_indices)} frames at {features_hz_effective:.1f} Hz)")
+
+    # Voice identity precompute. The pitch amplitude envelopes across
+    # the window feed into phase-coherence clustering; tracked voice
+    # IDs persist across frames via Hungarian matching threaded
+    # through prev_state.
+    print("Precomputing voice identities…")
+    t_vox_start = time.monotonic()
+    voice_cfg = VoiceClusteringConfig()
+    voice_state = VoiceState()
+    voices_per_step: list[list[dict]] = []
+    for i in feat_indices:
+        lo = max(0, i - voice_half)
+        hi = min(n_snap, i + voice_half + 1)
+        pitch_z_vox = (pamp[lo:hi].astype(np.complex128)
+                       * np.exp(1j * pph[lo:hi].astype(np.complex128)))
+        sw = StateWindow(
+            pitch_z=pitch_z_vox,
+            pitch_freqs=pf,
+            rhythm_z=rz_complex[lo:hi],
+            rhythm_freqs=rf,
+            frame_hz=float(snap_hz),
+            w_pitch=pW_final,
+        )
+        voice_state = extract_voices(sw, prev_state=voice_state,
+                                      config=voice_cfg)
+        # Store lightweight per-frame snapshot for rendering/CSV.
+        frame_voices = []
+        for v in voice_state.active_voices:
+            osc_arr = np.array(v.oscillator_indices, dtype=np.int32)
+            frame_voices.append({
+                "id": int(v.id),
+                "osc_lo": int(osc_arr.min()),
+                "osc_hi": int(osc_arr.max()),
+                "osc_indices": v.oscillator_indices,
+                "center_freq": float(v.center_freq),
+                "amp": float(v.amp),
+                "confidence": float(v.confidence),
+                "age_frames": int(v.age_frames),
+            })
+        voices_per_step.append(frame_voices)
+    print(f"  precomputed in {time.monotonic() - t_vox_start:.1f}s "
+          f"(max {max((len(f) for f in voices_per_step), default=0)} "
+          f"simultaneous voices)")
 
     # Temporal median smoothing on the continuous-valued features so the
     # displayed BPM and consonance don't flicker when the extractor peak
@@ -964,24 +1043,45 @@ def run(config_path: Path, audio_override: Path | None = None,
             idx = min(int(np.searchsorted(rW_times, now)), len(rW_times) - 1)
             im_Wr.set_data(np.abs(rW_hist[idx]))
 
-        # Perceptual features banner.
+        # Perceptual features banner + voice visualization.
         feat_idx = min(int(round(now * features_hz_effective)),
                        len(features_per_step) - 1)
         feat = features_per_step[feat_idx]
         # Beat pulse indicator: filled circle when peak_phase is within
         # ± π/4 of zero (near the beat), hollow otherwise.
         pulse = "●" if abs(feat["peak_phase"]) < (np.pi / 4) else "○"
-        companions = (f"  +{feat['n_companions']} locks"
+        companions = (f"+{feat['n_companions']}L"
                       if feat["n_companions"] else "")
+        active_voices = voices_per_step[feat_idx]
+        voice_count = len(active_voices)
         features_text.set_text(
-            f"KEY · {feat['tonic']} {feat['mode'].upper()}     "
-            f"CHORD · {feat['chord']}     "
-            f"BEAT {pulse} {feat['tempo']:.0f} BPM{companions}     "
-            f"CONSONANCE · {feat['consonance']:.2f}"
+            f"{feat['tonic']} {feat['mode'].upper()} · "
+            f"{feat['chord']} · "
+            f"{pulse} {feat['tempo']:.0f} BPM {companions} · "
+            f"CONSONANCE {feat['consonance']:.2f} · "
+            f"VOICES {voice_count}"
         )
 
+        # Voice ticks — horizontal colored segments at each oscillator
+        # that belongs to an active voice. Rendered in the final 0.5 s
+        # of the time window so they act like a visual "voice legend"
+        # at the playhead-right. Each voice's ticks share a color
+        # indexed by voice id mod palette length.
+        voice_segments: list = []
+        voice_colors: list = []
+        tick_x_lo = WINDOW_S / 2 - 0.55
+        tick_x_hi = WINDOW_S / 2 - 0.10
+        for vox in active_voices:
+            color = _VOICE_PALETTE[vox["id"] % len(_VOICE_PALETTE)]
+            for osc in vox["osc_indices"]:
+                y = float(osc) + 0.5
+                voice_segments.append([(tick_x_lo, y), (tick_x_hi, y)])
+                voice_colors.append(color)
+        voice_lines_p.set_segments(voice_segments)
+        voice_lines_p.set_color(voice_colors)
+
         artists = [im_p, im_r, p_line, r_line,
-                   lock_lines_p, lock_lines_r,
+                   lock_lines_p, lock_lines_r, voice_lines_p,
                    scope_p["current"], *scope_p["history"], scope_p["fill"],
                    scope_r["current"], *scope_r["history"], scope_r["fill"],
                    im_psp, im_prs, im_php, im_phr, features_text]
@@ -1009,15 +1109,18 @@ def run(config_path: Path, audio_override: Path | None = None,
         csv_path = out.with_suffix(".features.csv")
         with open(csv_path, "w") as f:
             f.write("t,tonic,mode,chord,bpm,peak_phase,peak_freq,"
-                    "n_companions,consonance\n")
+                    "n_companions,consonance,n_voices,voice_ids\n")
             for i, feat in enumerate(features_per_step):
                 t = i / features_hz_effective
+                voices = voices_per_step[i]
+                ids = "+".join(str(v["id"]) for v in voices) or "-"
                 f.write(
                     f"{t:.3f},{feat['tonic']},{feat['mode']},"
                     f"{feat['chord']},"
                     f"{feat['tempo']:.3f},{feat['peak_phase']:.4f},"
                     f"{feat['peak_freq']:.4f},{feat['n_companions']},"
-                    f"{feat['consonance']:.4f}\n"
+                    f"{feat['consonance']:.4f},"
+                    f"{len(voices)},{ids}\n"
                 )
         print(f"Dumped features to {csv_path}")
         return

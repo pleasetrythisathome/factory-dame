@@ -325,9 +325,17 @@ def test_rhythm_structure_peak_basic():
 
 def test_rhythm_structure_persistence_sticks_to_prev_peak():
     """When prev_peak_idx points to a strong-enough oscillator, the
-    extractor sticks to it rather than flipping to argmax."""
+    extractor sticks to it rather than flipping to argmax.
+
+    Also: with no prior, the initial peak pick is on *biased* amps
+    (Gaussian prior centered at the musical-tempo range) rather than
+    raw amps. With idx 14 ≈ 2.08 Hz sitting nearer the 2 Hz prior
+    center than idx 15 ≈ 2.39 Hz, idx 14 wins even at slightly lower
+    raw amplitude.
+    """
     freqs = np.geomspace(0.5, 10.0, 30)
-    # Two nearly-equal amplitudes, with slight edge to idx=15.
+    # Two nearly-equal amplitudes, idx 14 at ≈ 2.08 Hz, idx 15 at
+    # ≈ 2.39 Hz. Prior center is 2 Hz so idx 14 is favored.
     amps = np.zeros(30)
     amps[14] = 0.99
     amps[15] = 1.00
@@ -338,11 +346,15 @@ def test_rhythm_structure_persistence_sticks_to_prev_peak():
         rhythm_z=rz, rhythm_freqs=freqs,
         frame_hz=60.0,
     )
-    # With no prior, we get argmax = 15.
-    assert extract_rhythm_structure(w)["peak"]["idx"] == 15
-    # With prev_peak_idx = 14 (within threshold 0.8), we stick to 14.
+    # With no prior, biased peak = idx 14 (nearest 2 Hz).
+    assert extract_rhythm_structure(w)["peak"]["idx"] == 14
+    # Persistence: prev_peak_idx = 14 survives (within amp threshold).
     out_stuck = extract_rhythm_structure(w, prev_peak_idx=14)
     assert out_stuck["peak"]["idx"] == 14
+    # Persistence: prev_peak_idx = 15 also survives — it's still
+    # above persistence threshold (amps[15] = 1.0 ≥ 0.8 * max).
+    out_15 = extract_rhythm_structure(w, prev_peak_idx=15)
+    assert out_15["peak"]["idx"] == 15
 
 
 def test_rhythm_structure_persistence_switches_when_prev_too_weak():

@@ -110,3 +110,47 @@ class OSCBroadcaster:
                                      float(comp["phase"]))
             self.client.send_message(f"{base}/plv",
                                      float(comp["plv"]))
+
+    def send_voices(self, voice_state) -> None:
+        """Emit per-voice identity state on /voice/*.
+
+        A voice is a phase-coherent, amplitude-correlated cluster of
+        pitch oscillators. IDs persist across frames — a consumer
+        watching ``/voice/<id>/active`` sees a clean on/off signal
+        even across brief silences.
+
+        Messages (per active voice):
+            /voice/<id>/active       int (0/1)
+            /voice/<id>/center_freq  float Hz
+            /voice/<id>/amp          float 0-1ish
+            /voice/<id>/phase        float radians, (-π, π]
+            /voice/<id>/confidence   float 0-1
+            /voice/<id>/age_frames   int
+        Global:
+            /voice/active_count      int
+            /voice/active_ids        [int, int, ...]
+        """
+        if not self.enabled:
+            return
+        active = [v for v in voice_state.voices if v.active]
+        self.client.send_message("/voice/active_count", len(active))
+        self.client.send_message(
+            "/voice/active_ids",
+            [int(v.id) for v in active] if active else [-1],
+        )
+        for v in active:
+            base = f"/voice/{int(v.id)}"
+            self.client.send_message(f"{base}/active", 1)
+            self.client.send_message(f"{base}/center_freq",
+                                     float(v.center_freq))
+            self.client.send_message(f"{base}/amp", float(v.amp))
+            self.client.send_message(f"{base}/phase",
+                                     float(v.phase_centroid))
+            self.client.send_message(f"{base}/confidence",
+                                     float(v.confidence))
+            self.client.send_message(f"{base}/age_frames",
+                                     int(v.age_frames))
+        # Signal deactivation for voices that went silent this frame.
+        for v in voice_state.voices:
+            if not v.active and v.silent_frames == 1:
+                self.client.send_message(f"/voice/{int(v.id)}/active", 0)

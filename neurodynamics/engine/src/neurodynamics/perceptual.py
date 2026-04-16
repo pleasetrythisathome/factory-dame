@@ -302,6 +302,8 @@ def extract_rhythm_structure(
     persistence_threshold: float = 0.8,
     companion_plv_threshold: float = 0.7,
     companion_amp_threshold: float = 0.3,
+    tempo_prior_center_hz: float = 2.0,
+    tempo_prior_sigma_log2: float = 1.0,
 ) -> dict:
     """Extract peak beat + phase-locked companions from rhythm state.
 
@@ -336,12 +338,25 @@ def extract_rhythm_structure(
             "companions": [],
         }
 
+    # Soft tempo prior: Gaussian in log-frequency centered on the
+    # musical-tempo sweet spot (~120 BPM = 2 Hz). Biases initial peak
+    # selection toward the fundamental pulse without hard-gating, so
+    # genuinely slow or fast tempos still win when evidence is clear.
+    # Persistence overrides the prior — once locked to a peak, a
+    # strong enough amplitude keeps it there.
+    log_freqs = np.log2(np.clip(freqs, 1e-9, None))
+    prior = np.exp(
+        -0.5 * ((log_freqs - np.log2(tempo_prior_center_hz))
+                / tempo_prior_sigma_log2) ** 2
+    )
+    biased_amps = amps * prior
+
     if (prev_peak_idx is not None
         and 0 <= prev_peak_idx < len(amps)
         and amps[prev_peak_idx] >= persistence_threshold * amps.max()):
         peak_idx = int(prev_peak_idx)
     else:
-        peak_idx = int(np.argmax(amps))
+        peak_idx = int(np.argmax(biased_amps))
 
     peak_freq = float(freqs[peak_idx])
     peak_phase = float(np.angle(rz_2d[-1, peak_idx]))

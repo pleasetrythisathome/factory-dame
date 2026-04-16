@@ -1,0 +1,115 @@
+# Track corpus for voice-extraction validation. Each entry specifies
+# a YouTube search query (resolved via yt-dlp ytsearch), excerpt range
+# to keep, and expected voice-count bounds used by the test suite.
+#
+# To regenerate: `uv run python -m tests.rip_corpus`
+
+[[track]]
+slug = "four_tet_angel_echoes"
+artist = "Four Tet"
+title = "Angel Echoes"
+query = "Four Tet Angel Echoes"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 2
+expected_voices_max = 8
+notes = "Dense layered melodic textures — multiple simultaneous voices"
+
+[[track]]
+slug = "fred_again_marea"
+artist = "Fred again.."
+title = "Marea"
+query = "Fred again Marea We've Lost Dancing"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 2
+expected_voices_max = 7
+notes = "Vocal-driven with rhythmic pulse and bass"
+
+[[track]]
+slug = "chemical_brothers_hey_boy_hey_girl"
+artist = "The Chemical Brothers"
+title = "Hey Boy Hey Girl"
+query = "Chemical Brothers Hey Boy Hey Girl"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 2
+expected_voices_max = 6
+notes = "Heavy bass + repeating sample + filter sweeps"
+
+[[track]]
+slug = "underworld_born_slippy_nuxx"
+artist = "Underworld"
+title = "Born Slippy .NUXX"
+query = "Underworld Born Slippy NUXX"
+start_sec = 90
+duration_sec = 90
+expected_voices_min = 3
+expected_voices_max = 8
+notes = "Bassline + synth layers, stratified voices"
+
+[[track]]
+slug = "function_voiceprint"
+artist = "Function"
+title = "Voiceprint"
+query = "Function Voiceprint Sandwell"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 1
+expected_voices_max = 5
+notes = "Stripped techno — kick + sparse melodic elements"
+
+[[track]]
+slug = "sandwell_district_immolare"
+artist = "Sandwell District"
+title = "Immolare"
+query = "Sandwell District Immolare"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 1
+expected_voices_max = 5
+notes = "Drone-leaning techno"
+
+[[track]]
+slug = "burial_archangel"
+artist = "Burial"
+title = "Archangel"
+query = "Burial Archangel"
+start_sec = 30
+duration_sec = 90
+expected_voices_min = 1
+expected_voices_max = 5
+notes = "Muddy / atmospheric — heavily filtered vocal, reverb, sub-bass"
+
+[[track]]
+slug = "disclosure_latch"
+artist = "Disclosure"
+title = "Latch"
+query = "Disclosure Latch Sam Smith"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 2
+expected_voices_max = 7
+notes = "UK garage / house — vocal + bass + percussion + synth stabs"
+
+[[track]]
+slug = "kpop_demon_hunters_golden"
+artist = "KPop Demon Hunters"
+title = "Golden"
+query = "KPop Demon Hunters Golden HUNTRIX"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 3
+expected_voices_max = 8
+notes = "Poppy — dense production, multiple vocal lines + instrumentals"
+
+[[track]]
+slug = "daft_punk_da_funk"
+artist = "Daft Punk"
+title = "Da Funk"
+query = "Daft Punk Da Funk"
+start_sec = 60
+duration_sec = 90
+expected_voices_min = 2
+expected_voices_max = 6
+notes = "Classic filter-house — signature filter sweeps + clav bassline + drums"
