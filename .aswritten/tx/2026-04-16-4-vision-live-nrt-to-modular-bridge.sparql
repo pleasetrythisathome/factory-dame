@@ -1,0 +1,340 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# ── Transaction provenance (default graph) ────────────────────────────────────
+INSERT DATA {
+  narr:Tx_20260416T210000Z a prov:Activity ;
+    dct:title "Vision: live NRT-to-modular bridge — improvising with arbitrary audio" ;
+    prov:generatedAtTime "2026-04-16T21:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-04-16-4-live-nrt-modular-bridge.md" ;
+    narr:originRef "main" ;
+    prov:generated
+      narr:Sample_LiveNRTModularBridge_20260416,
+      narr:Narrative_LiveNRTModularBridge,
+      narr:Claim_JazzOpenMicUseCase,
+      narr:Claim_PlayAlongTracksUseCase,
+      narr:Claim_ModularAlongDJHardwareUseCase,
+      narr:Claim_AnalysisIsTheCVOutput,
+      narr:Claim_NearTermArchitectureLaptopES9,
+      narr:Claim_MediumTermArchitectureRPi5,
+      narr:Claim_LongTermArchitectureCustomEmbedded,
+      narr:Claim_Task011CVMIDIOSCRouter,
+      narr:Claim_NoDirectCompetitorArbitraryAudioCV,
+      narr:Claim_ProductThesisUnifiesBacklog,
+      narr:Obs_ScarletProductThesisQuote,
+      narr:Obs_ProductPositioningTagline,
+      narr:Obs_AnalysisIsTheCVQuote,
+      narr:Obs_ContinuousTempoCV,
+      narr:StyleObs_Antithesis_NRTFlowsVsSnaps,
+      narr:StyleObs_TechnicalJargonDensity,
+      narr:StyleObs_BoldEmphasisRhetoric,
+      narr:StyleMetrics_LiveNRTModularBridge .
+} ;
+
+# ── UPDATE: Narrative_CreativeCounterweightToAswritten — add product potential ─
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T210000Z {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note "Aswritten demands speed and pragmatism ('dumber and faster'). The generative 3D project provides breathing room and a space for purely creative work unconstrained by business velocity. Clarified 2026-04-16: this is not a dead-end art project — it is an art project that might also be a real product if it keeps going. The process minimalism stance still applies, but the vision now includes a plausible product trajectory (live NRT-to-modular bridge)." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note ?oldNote .
+  }
+} ;
+
+# ── UPDATE: Narrative_TaylorCreativeIntersection — add hardware CAD specificity ─
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_TaylorCreativeIntersection skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T210000Z {
+    narr:Narrative_TaylorCreativeIntersection skos:note "Not a formal shared project, but Scarlet wants a world of overlap where she can help Taylor with CAD and find creative intersection organically. Taylor is self-sufficient with the printer but has not yet done 3D modeling. Extended 2026-04-16: if the live NRT-to-modular bridge hardware packaging happens, this becomes a physical object that could be designed/CAD'd — a custom enclosure or module faceplate — creating natural overlap with Taylor's generative 3D interests. The modular context is already Scarlet's world; the CAD becomes a shared surface." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_TaylorCreativeIntersection skos:note ?oldNote .
+  }
+} ;
+
+# ── INSERT: All new entities ──────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T210000Z {
+
+    # ── Sample ──────────────────────────────────────────────────────────────
+    narr:Sample_LiveNRTModularBridge_20260416
+      a narr:Sample ;
+      dct:title "Vision: live NRT-to-modular bridge — improvising with arbitrary audio" ;
+      dct:created "2026-04-16"^^xsd:date ;
+      dct:description "Product thesis document emerging from the task-004 implementation session. Proposes using the NRT engine to listen to live audio and output CV, MIDI, and OSC to a Eurorack modular synthesizer — unifying the existing backlog (task-004 through task-010) into a single coherent product vision." ;
+      narr:inputLength 6820 .
+
+    # ── Core Narrative ───────────────────────────────────────────────────────
+    narr:Narrative_LiveNRTModularBridge
+      a narr:Narrative ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:broader narr:Narrative_NonlinearOscillatorNetworks ;
+      skos:note "A product-level unification of the existing factory-dame backlog into a single coherent use case: hardware or software that listens to live audio and outputs CV, MIDI, and OSC for all perceptual parameters — tempo, tonic, key, dynamics — so a modular synthesizer can improvise live alongside arbitrary audio (jazz open mic, DJ sets, streamed tracks, field recordings). Architecturally founded on Narrative_AnalysisIsSynthesis: the same oscillator state driving generative art IS the CV signal. No direct competitor in the 'listen to arbitrary audio, output continuous musical CV' space." ;
+      narr:theme "Live NRT-to-modular bridge: the NRT engine as a real-time CV/MIDI/OSC source for improvising with arbitrary audio" .
+
+    # ── Use Case Claims ──────────────────────────────────────────────────────
+    narr:Claim_JazzOpenMicUseCase
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Bring the modular to a jazz venue. Put a mic on the room or DI the band. The modular follows the drummer's push/pull of tempo and the pianist's modulations via continuous CV — improvising inside the music rather than on top of a fixed click." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    narr:Claim_PlayAlongTracksUseCase
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Play along with Spotify, Bandcamp, or any arbitrary track. The modular is in key, synced, following the track's dynamics. Low-stakes fun or practice — no DAW, no MIDI file, no sync protocol required." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    narr:Claim_ModularAlongDJHardwareUseCase
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Modular alongside turntables, CDJs, or any DJ hardware without MIDI sync. The NRT box extracts clock, tonic, and key from the audio output — the modular syncs without a dedicated sync protocol. Ableton Link does not solve this; it requires Link-compatible software." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    # ── NRT Advantage Claims (product-application angle) ─────────────────────
+    narr:Claim_AnalysisIsTheCVOutput
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "The same oscillator state driving the particle systems and 3D forms IS the state driving the CV to the modular. No separate analysis pipeline, no metadata handoff, no 'analysis frame' vs. 'synthesis frame' boundary. This is Narrative_AnalysisIsSynthesis applied as a product feature: the CV output is not derived from analysis — it IS the analysis." ;
+      narr:aboutNode narr:Narrative_AnalysisIsSynthesis ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    # ── Architecture Claims ──────────────────────────────────────────────────
+    narr:Claim_NearTermArchitectureLaptopES9
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Near-term (weeks, no custom hardware): laptop running the engine in live mode (task-005 prereq), Expert Sleepers ES-9 or DC-coupled USB audio IO (MOTU UltraLite) as CV bridge with 14 DC-coupled outs, standard MIDI interface for clock + MPE, and a new routing module (task-011) that subscribes to the live perceptual state stream and maps extractor outputs to CV channels, MIDI messages, and OSC. Config-driven mapping: user writes [router.cv.channel_0] source = 'tonic' etc." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Boulder ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    narr:Claim_MediumTermArchitectureRPi5
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Medium-term (months, product packaging): Raspberry Pi 5 or LattePanda with USB audio IO running the engine headlessly. Boot-to-modular box: plug in audio-in, CV-out, power; no screen needed. Small OLED + encoder for basic status and routing preset selection." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    narr:Claim_LongTermArchitectureCustomEmbedded
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Long-term (if the product lands): custom embedded board with onboard DACs for CV — Daisy Seed at reduced network sizes, or STM32MP1-class SBC for the full engine. Module-form-factor version for Eurorack is possible but the main engine probably won't fit on a 14HP panel; a 'control module' that talks OSC to a host computer is more realistic." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    # ── Dependency / Backlog Claims ──────────────────────────────────────────
+    narr:Claim_Task011CVMIDIOSCRouter
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "task-011 (CV/MIDI/OSC output router) is the new backlog ticket created during this session, with task-004 and task-005 as dependencies. It subscribes to the live perceptual state stream and maps extractor outputs to CV channels, MIDI messages, and OSC. task-010 (OSC schema documentation) becomes load-bearing as the consumer contract." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Boulder .
+
+    narr:Claim_ProductThesisUnifiesBacklog
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "The existing backlog (task-004 through task-010) already encodes the live NRT-to-modular vision — task-005 (live audio), task-006 (TouchDesigner OSC), task-007 (Overtone) are not separate ideas but facets of this one product thesis. The product is 'live NRT-to-modular bridge' and the tickets are the implementation path." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+
+    # ── Market / Positioning Claims ──────────────────────────────────────────
+    narr:Claim_NoDirectCompetitorArbitraryAudioCV
+      a narr:Claim ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "No direct competitor in the 'listen to arbitrary audio, output continuous musical CV' space. Adjacent products: Mutable Instruments Rings (modal resonator — synthesis not analysis), Expert Sleepers FH-2/ES-9 (CV bridge infrastructure, not analysis), Ableton Link (tempo sync but only for Link-compatible software, not arbitrary audio)." ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Boulder .
+
+    # ── Observations with selectors ──────────────────────────────────────────
+    narr:Obs_ScarletProductThesisQuote
+      a narr:Observation ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:broader narr:Signals ;
+      skos:note "Scarlet's verbatim exploratory question that seeded the entire product thesis" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LiveNRTModularBridge_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 222 ;
+          oa:end 530
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "so might we be able to create a piece of hardware (or software running on hardware rigged to do this, like a laptop connected to an expert sleeps es-9, etc) that listens to live audio and outputs osc, midi and CV" ;
+          oa:prefix "Scarlet asked:\n\n> " ;
+          oa:suffix " for all of these parameters?"
+        ]
+      ] .
+
+    narr:Obs_ProductPositioningTagline
+      a narr:Observation ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:broader narr:Tagline ;
+      skos:note "Proposed product positioning tagline — captures the core differentiation vs. beat trackers" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LiveNRTModularBridge_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 5140 ;
+          oa:end 5380
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "The first Eurorack-compatible bridge that lets your modular follow arbitrary live audio — jazz, DJ sets, streamed tracks, field recordings. Continuous tempo, learned key, phantom-aware fundamental detection." ;
+          oa:prefix "> " ;
+          oa:suffix " Not a beat tracker"
+        ]
+      ] .
+
+    narr:Obs_AnalysisIsTheCVQuote
+      a narr:Observation ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:broader narr:LeverageProfile ;
+      skos:note "Key architectural claim: the CV output is not derived from analysis — it IS the analysis state" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LiveNRTModularBridge_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 3280 ;
+          oa:end 3480
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Analysis IS the CV. The same oscillator state driving the particle systems and 3D forms is the state driving the CV to the modular. No separate analysis pipeline, no metadata handoff" ;
+          oa:prefix "- **" ;
+          oa:suffix ", no \"analysis frame\""
+        ]
+      ] .
+
+    narr:Obs_ContinuousTempoCV
+      a narr:Observation ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:broader narr:DesignTradeoffs ;
+      skos:note "Contrast between NRT continuous tempo and beat tracker grid-snapping, framed as a CV signal quality claim" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LiveNRTModularBridge_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 2620 ;
+          oa:end 2810
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Rubato, accelerandi, and the subtle push/pull of live jazz show up as a continuous CV signal. A beat tracker snaps — NRT flows." ;
+          oa:prefix "with the music. " ;
+          oa:suffix "\n- **Learned tonal"
+        ]
+      ] .
+
+    # ── Style Observations ───────────────────────────────────────────────────
+    narr:StyleObs_Antithesis_NRTFlowsVsSnaps
+      a narr:StyleObservation ;
+      skos:broader narr:Antithesis ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Short antithetical couplet used as rhetorical climax for each NRT advantage — 'A beat tracker snaps — NRT flows' is the clearest instance. Pattern repeats across the section." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LiveNRTModularBridge_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 2790 ;
+          oa:end 2815
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "A beat tracker snaps — NRT flows." ;
+          oa:prefix "continuous CV signal. " ;
+          oa:suffix "\n- **Learned tonal hierarchy"
+        ]
+      ] .
+
+    narr:StyleObs_TechnicalJargonDensity
+      a narr:StyleObservation ;
+      skos:broader narr:JargonPolicy ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "High domain-specific jargon density: Eurorack, CV, OSC, MIDI, MPE, DC-coupled, GrFNN, Hebbian, 12-TET, Krumhansl-Schmuckler, quintic nonlinearity, Daisy Seed, STM32MP1, LattePanda. Assumes reader fluency in both music hardware and dynamical systems." ;
+      rdf:value false ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LiveNRTModularBridge_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 3680 ;
+          oa:end 3850
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Expert Sleepers ES-9 (or any DC-coupled USB audio IO — MOTU UltraLite works too) as the CV bridge: 14 DC-coupled outs, sounddevice pipes numeric signals" ;
+          oa:prefix "- " ;
+          oa:suffix " as \"audio,\" they become CV"
+        ]
+      ] .
+
+    narr:StyleObs_BoldEmphasisRhetoric
+      a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:note "Bold markdown used as rhetorical emphasis on key claims and product-level assertions: '**product-level unification**', '**Analysis IS the CV**', '**No direct competitor**'. Signals conviction hierarchy within the prose — bold = load-bearing claim." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_LiveNRTModularBridge_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 680 ;
+          oa:end 730
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "a **product-level unification of the existing backlog**" ;
+          oa:prefix "It is " ;
+          oa:suffix " into a single coherent"
+        ]
+      ] .
+
+    # ── Style Metrics ────────────────────────────────────────────────────────
+    narr:StyleMetrics_LiveNRTModularBridge
+      a narr:StyleMetrics ;
+      dct:source narr:Sample_LiveNRTModularBridge_20260416 ;
+      skos:broader narr:StyleMetrics ;
+      skos:note "Technical-visionary register. Structured with H2 sections and bold sub-headers. Mix of short antithetical couplets ('A beat tracker snaps — NRT flows') and longer elaborating clauses in the architecture section. High jargon density (Eurorack/CV/NRT/dynamical systems domain). Active voice dominant in claims and product assertions. Embedded blockquote in casual register (Scarlet's verbatim question). Config-literal inline (router.cv.channel_0). Numbered dependency chain. Exploratory hedging at close ('might we be able to', 'worth being oriented toward, not a commitment to ship')." ;
+      narr:AverageSentenceLength "19"^^xsd:integer ;
+      narr:ActiveVoiceRatio "0.76"^^xsd:decimal ;
+      narr:JargonDensity "0.21"^^xsd:decimal .
+  }
+}
