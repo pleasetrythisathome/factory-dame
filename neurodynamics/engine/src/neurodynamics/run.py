@@ -20,6 +20,14 @@ from scipy.signal import resample_poly
 from .cochlea import GammatoneFilterbank
 from .grfnn import GrFNN, GrFNNParams, channel_to_oscillator_weights
 from .osc_out import OSCBroadcaster
+from .perceptual import (
+    StateWindow,
+    extract_chord,
+    extract_consonance,
+    extract_key,
+    extract_rhythm_structure,
+    extract_tempo,
+)
 from .state_log import StateLog
 
 # Formats libsndfile handles directly. Everything else (mp3, m4a, opus, webm…)
@@ -184,6 +192,10 @@ def run(config_path: Path, audio_override: Path | None = None,
     state = StateLog(out_path, layers=layers_meta)
     osc_cfg = cfg["osc"]
     osc = OSCBroadcaster(osc_cfg["host"], osc_cfg["port"], osc_cfg["enabled"])
+    # Mutable state threaded through the snapshot loop. prev_peak_idx
+    # carries the persistence hint for the rhythm structure extractor
+    # so the main-beat BPM doesn't flip between adjacent oscillators.
+    osc_state: dict = {"prev_peak_idx": None}
     phantom_cfg = cfg["phantom"]
 
     # Optional W history. Logged only when w_snapshot_hz > 0 AND a layer
@@ -256,6 +268,32 @@ def run(config_path: Path, audio_override: Path | None = None,
                 osc.send_layer("motor", motor_net.z, mp,
                                motor_net.last_input_mag,
                                motor_net.last_residual)
+            # Perceptual rollups on the instantaneous state. Cheap.
+            sw = StateWindow(
+                pitch_z=pitch_net.z,
+                pitch_freqs=pitch_net.f,
+                rhythm_z=rhythm_net.z,
+                rhythm_freqs=rhythm_net.f,
+                frame_hz=snap_hz,
+                w_pitch=pitch_net.W,
+            )
+            rhythm = extract_rhythm_structure(
+                sw, prev_peak_idx=osc_state["prev_peak_idx"]
+            )
+            osc_state["prev_peak_idx"] = rhythm["peak"]["idx"]
+            key = extract_key(sw)
+            chord = extract_chord(sw)
+            osc.send_features({
+                "tempo": rhythm["peak"]["bpm"],
+                "tonic": key["tonic"],
+                "mode": key["mode"],
+                "key_conf": key["confidence"],
+                "chord": chord["name"],
+                "chord_quality": chord["quality"],
+                "chord_conf": chord["confidence"],
+                "consonance": extract_consonance(sw),
+            })
+            osc.send_rhythm_structure(rhythm)
             next_snap += snap_interval
 
         # Hebbian weight snapshot — independent cadence from the state log.

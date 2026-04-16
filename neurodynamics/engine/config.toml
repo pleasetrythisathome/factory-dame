@@ -73,12 +73,14 @@ delta1 = 0.0
 delta2 = 0.0
 epsilon = 1.0
 input_gain = 1.0
-# Forward (sensory → motor): modest — sensory.z typically peaks at ~0.15
-# on mastered material, so forward_gain ~0.3 yields a motor SS amplitude
-# of ~0.1 with the alpha above.
-# Backward (motor → sensory): very small so the feedback modulates rather
-# than driving sensory into saturation.
-forward_gain = 0.3
+# Forward (sensory → motor): sensory.z on mastered material peaks
+# nearer ~0.5 (not the 0.15 an earlier tuning assumed), so with the
+# original forward_gain=0.3 motor sat at its Hopf limit cycle the
+# entire track. Retuned 0.3 → 0.1 (2026-04-16) so motor breathes
+# with the sensory drive rather than saturating.
+# Backward (motor → sensory): very small so the feedback modulates
+# rather than driving sensory into saturation.
+forward_gain = 0.1
 backward_gain = 0.03
 
 [pitch_grfnn]

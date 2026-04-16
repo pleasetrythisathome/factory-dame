@@ -101,6 +101,14 @@ from matplotlib.gridspec import GridSpec  # noqa: E402
 from matplotlib.patheffects import Normal, Stroke  # noqa: E402
 
 from .modelock import detect_mode_locks
+from .perceptual import (
+    StateWindow,
+    extract_chord,
+    extract_consonance,
+    extract_key,
+    extract_rhythm_structure,
+    extract_tempo,
+)
 from .run import _NATIVE_EXTS, state_path_for
 
 WINDOW_S = 12.0       # heatmap time window (±6 s around playhead)
@@ -341,7 +349,9 @@ def _load_for_playback(path: Path) -> tuple[np.ndarray, int]:
 
 
 def run(config_path: Path, audio_override: Path | None = None,
-        state_override: Path | None = None) -> None:
+        state_override: Path | None = None,
+        screenshot_at: float | None = None,
+        screenshot_path: Path | None = None) -> None:
     with open(config_path, "rb") as f:
         cfg = tomllib.load(f)
     cfg_dir = config_path.parent
@@ -413,13 +423,17 @@ def run(config_path: Path, audio_override: Path | None = None,
     # optional rows for motor (two-layer pulse) and learned weights.
     show_motor_row = has_motor
     show_w_row = has_pW or has_rW
-    base_rows = [3, 3, 3, 2, 1]       # pitch heat, rhythm heat, scopes, phase, phantom
+    # First row is a dedicated banner for the title + perceptual features
+    # overlay. Using its own axes (rather than fig.text or ax_p.text at
+    # y>1) keeps blit well-behaved — the text updates cleanly per frame.
+    base_rows = [1.0, 3, 3, 3, 2, 1]  # banner, pitch heat, rhythm heat, scopes, phase, phantom
     extra = []
     if show_motor_row:
         extra.append(("motor", 2))    # compact heatmap
     if show_w_row:
         extra.append(("w", 3))
-    row_names = ["pitch", "rhythm", "scope", "phase", "phantom"] + [e[0] for e in extra]
+    row_names = (["banner", "pitch", "rhythm", "scope", "phase", "phantom"]
+                 + [e[0] for e in extra])
     height_ratios = base_rows + [e[1] for e in extra]
     n_rows = len(height_ratios)
     fig_h = 14 + (2 if show_motor_row else 0) + (3 if show_w_row else 0)
@@ -430,24 +444,40 @@ def run(config_path: Path, audio_override: Path | None = None,
         height_ratios=height_ratios,
         width_ratios=[len(pf), len(rf)],
     )
-    ax_p = fig.add_subplot(gs[0, :])
-    ax_r = fig.add_subplot(gs[1, :])
-    ax_wp = fig.add_subplot(gs[2, 0])
-    ax_wr = fig.add_subplot(gs[2, 1])
-    ax_psp = fig.add_subplot(gs[3, 0])   # pitch phase coherence
-    ax_prs = fig.add_subplot(gs[3, 1])   # rhythm phase coherence
-    ax_php = fig.add_subplot(gs[4, 0])   # pitch phantom+residual
-    ax_phr = fig.add_subplot(gs[4, 1])   # rhythm phantom+residual
-    # Optional rows beyond row 4.
-    extra_row_idx = 5
+    ax_banner = fig.add_subplot(gs[0, :])
+    ax_banner.set_axis_off()
+    ax_p = fig.add_subplot(gs[1, :])
+    ax_r = fig.add_subplot(gs[2, :])
+    ax_wp = fig.add_subplot(gs[3, 0])
+    ax_wr = fig.add_subplot(gs[3, 1])
+    ax_psp = fig.add_subplot(gs[4, 0])   # pitch phase coherence
+    ax_prs = fig.add_subplot(gs[4, 1])   # rhythm phase coherence
+    ax_php = fig.add_subplot(gs[5, 0])   # pitch phantom+residual
+    ax_phr = fig.add_subplot(gs[5, 1])   # rhythm phantom+residual
+    # Optional rows beyond row 5.
+    extra_row_idx = 6
     ax_motor = None
     if show_motor_row:
         ax_motor = fig.add_subplot(gs[extra_row_idx, :])
         extra_row_idx += 1
     ax_Wp = fig.add_subplot(gs[extra_row_idx, 0]) if show_w_row else None
     ax_Wr = fig.add_subplot(gs[extra_row_idx, 1]) if show_w_row else None
-    fig.suptitle(f"NEURAL RESONANCE  ·  {audio_path.name}".upper(),
-                 color=_INK)
+    # Title sits statically at top of the banner axis.
+    ax_banner.text(
+        0.5, 0.85,
+        f"NEURAL RESONANCE  ·  {audio_path.name}".upper(),
+        transform=ax_banner.transAxes,
+        ha="center", va="top", color=_INK, fontsize=12,
+    )
+    # Features banner text lives inside ax_banner. Returning it in the
+    # blit artist list updates reliably because the text is inside an
+    # axes with proper clip bounds.
+    features_text = ax_banner.text(
+        0.5, 0.25, "",
+        transform=ax_banner.transAxes,
+        ha="center", va="center", color=_INK, fontsize=14,
+        animated=True,
+    )
 
     # Percentile-based vmax + aggressive gamma<1 (PowerNorm) to boost
     # low-amplitude detail. Pitch especially benefits from strong gamma
@@ -487,12 +517,18 @@ def run(config_path: Path, audio_override: Path | None = None,
 
     # Motor heatmap (two-layer pulse network's motor-cortex layer).
     im_motor = None
+    m_line = None
     if show_motor_row:
-        m_vmax = float(max(np.percentile(mamp, 90), 1e-3))
+        # Motor oscillators on the canonical Hopf limit cycle cluster
+        # tightly near their saturation amplitude (e.g. 0.45–0.53 on
+        # Flights). Stretch the narrow p5→p99 band across the full cmap
+        # with linear norm so the dynamics are legible.
+        m_vmin = float(np.percentile(mamp, 5))
+        m_vmax = float(max(np.percentile(mamp, 99), m_vmin + 1e-4))
         init_m = np.zeros((len(mf), window_samples), dtype=np.float32)
         # Reuse the rhythm cmap but shift palette position to distinguish
         # the motor layer visually from sensory rhythm.
-        from matplotlib.colors import LinearSegmentedColormap, PowerNorm
+        from matplotlib.colors import LinearSegmentedColormap, Normalize
         cmap_motor = LinearSegmentedColormap.from_list(
             "nd_motor_ink",
             [_PAPER, "#D6C4B1", "#8E7A58", "#5C3F1C", "#2C1B08"],
@@ -501,7 +537,7 @@ def run(config_path: Path, audio_override: Path | None = None,
             init_m, aspect="auto", origin="lower",
             extent=(-WINDOW_S / 2, WINDOW_S / 2, 0, len(mf)),
             cmap=cmap_motor,
-            norm=PowerNorm(gamma=0.6, vmin=0, vmax=m_vmax),
+            norm=Normalize(vmin=m_vmin, vmax=m_vmax),
             interpolation="nearest",
         )
         ax_motor.set_title(
@@ -789,6 +825,79 @@ def run(config_path: Path, audio_override: Path | None = None,
           f"(p: {sum(1 for l in locks_per_step_p if l)} active steps, "
           f"r: {sum(1 for l in locks_per_step_r if l)} active steps)")
 
+    # Perceptual feature precompute. Features change slowly (tempo, key,
+    # consonance) so we compute at FEATURE_HZ and nearest-neighbor-lookup
+    # per render frame. Windowed: ~2.5 s half-window (5 s total) gives
+    # the rhythm GrFNN enough context to pick a stable peak. Key
+    # detection uses the final Hebbian W if available. Rhythm structure
+    # carries peak-index persistence across frames so BPM doesn't flip
+    # between adjacent log-spaced oscillators.
+    FEATURE_HZ = 5.0
+    print("Precomputing perceptual features…")
+    t_feat_start = time.monotonic()
+    feat_stride = max(1, int(round(snap_hz / FEATURE_HZ)))
+    feat_half = max(1, int(snap_hz * 2.5))  # 2.5s half-window → 5s total
+    n_snap = pamp.shape[0]
+    # We need complex state for rhythm structure (phase matters), so
+    # rebuild rhythm_z from amp·exp(i·phase). Pitch state still uses
+    # amplitudes only (extract_key reads W diag or |pitch_z|).
+    rz_complex = (ramp.astype(np.complex128)
+                  * np.exp(1j * rpha.astype(np.complex128)))
+    feat_indices = np.arange(0, n_snap, feat_stride)
+    features_per_step: list[dict] = []
+    prev_peak_idx: int | None = None
+    for i in feat_indices:
+        lo = max(0, i - feat_half)
+        hi = min(n_snap, i + feat_half + 1)
+        sw = StateWindow(
+            pitch_z=pamp[lo:hi].astype(np.complex128),
+            pitch_freqs=pf,
+            rhythm_z=rz_complex[lo:hi],
+            rhythm_freqs=rf,
+            frame_hz=float(snap_hz),
+            w_pitch=pW_final,
+        )
+        rhythm = extract_rhythm_structure(sw, prev_peak_idx=prev_peak_idx)
+        prev_peak_idx = rhythm["peak"]["idx"]
+        key = extract_key(sw)
+        chord = extract_chord(sw)
+        conson = extract_consonance(sw)
+        features_per_step.append({
+            "tempo": rhythm["peak"]["bpm"],
+            "peak_phase": rhythm["peak"]["phase"],
+            "peak_freq": rhythm["peak"]["freq"],
+            "n_companions": len(rhythm["companions"]),
+            "tonic": key["tonic"],
+            "mode": key["mode"],
+            "key_conf": key["confidence"],
+            "chord": chord["name"],
+            "chord_conf": chord["confidence"],
+            "consonance": conson,
+        })
+    features_hz_effective = snap_hz / feat_stride
+    print(f"  precomputed in {time.monotonic() - t_feat_start:.1f}s "
+          f"({len(feat_indices)} frames at {features_hz_effective:.1f} Hz)")
+
+    # Temporal median smoothing on the continuous-valued features so the
+    # displayed BPM and consonance don't flicker when the extractor peak
+    # oscillator wobbles. 5-frame median at 5 Hz ≈ 1 s of smoothing —
+    # short enough to stay responsive, wide enough to kill flicker.
+    def _median_smooth(values: list[float], k: int = 5) -> list[float]:
+        arr = np.array(values, dtype=np.float64)
+        half = k // 2
+        smoothed = np.empty_like(arr)
+        for i in range(len(arr)):
+            lo, hi = max(0, i - half), min(len(arr), i + half + 1)
+            smoothed[i] = float(np.median(arr[lo:hi]))
+        return smoothed.tolist()
+
+    if features_per_step:
+        tempos = _median_smooth([f["tempo"] for f in features_per_step])
+        conson = _median_smooth([f["consonance"] for f in features_per_step])
+        for i, f in enumerate(features_per_step):
+            f["tempo"] = tempos[i]
+            f["consonance"] = conson[i]
+
     def _build_lock_segments(locks: list[dict], n_osc: int):
         """Build a flat list of (vertical line + 2 endpoint dots) segments
         and matching colors for the constellation. Lanes spread by ratio so
@@ -855,18 +964,63 @@ def run(config_path: Path, audio_override: Path | None = None,
             idx = min(int(np.searchsorted(rW_times, now)), len(rW_times) - 1)
             im_Wr.set_data(np.abs(rW_hist[idx]))
 
+        # Perceptual features banner.
+        feat_idx = min(int(round(now * features_hz_effective)),
+                       len(features_per_step) - 1)
+        feat = features_per_step[feat_idx]
+        # Beat pulse indicator: filled circle when peak_phase is within
+        # ± π/4 of zero (near the beat), hollow otherwise.
+        pulse = "●" if abs(feat["peak_phase"]) < (np.pi / 4) else "○"
+        companions = (f"  +{feat['n_companions']} locks"
+                      if feat["n_companions"] else "")
+        features_text.set_text(
+            f"KEY · {feat['tonic']} {feat['mode'].upper()}     "
+            f"CHORD · {feat['chord']}     "
+            f"BEAT {pulse} {feat['tempo']:.0f} BPM{companions}     "
+            f"CONSONANCE · {feat['consonance']:.2f}"
+        )
+
         artists = [im_p, im_r, p_line, r_line,
                    lock_lines_p, lock_lines_r,
                    scope_p["current"], *scope_p["history"], scope_p["fill"],
                    scope_r["current"], *scope_r["history"], scope_r["fill"],
-                   im_psp, im_prs, im_php, im_phr]
+                   im_psp, im_prs, im_php, im_phr, features_text]
         if im_motor is not None:
             artists.append(im_motor)
+        if m_line is not None:
+            artists.append(m_line)
         if im_Wp is not None:
             artists.append(im_Wp)
         if im_Wr is not None:
             artists.append(im_Wr)
         return tuple(artists)
+
+    # Headless screenshot mode — render one frame at the requested time
+    # and exit before touching Tk.
+    if screenshot_at is not None:
+        clock["t0"] = time.monotonic() - float(screenshot_at)
+        update(0)
+        fig.canvas.draw()
+        out = screenshot_path or Path("snapshot.png")
+        fig.savefig(out, dpi=120, facecolor=fig.get_facecolor())
+        print(f"Saved snapshot to {out}")
+        # Also dump the feature time series to CSV alongside the PNG
+        # so we can audit things like BPM stability across the track.
+        csv_path = out.with_suffix(".features.csv")
+        with open(csv_path, "w") as f:
+            f.write("t,tonic,mode,chord,bpm,peak_phase,peak_freq,"
+                    "n_companions,consonance\n")
+            for i, feat in enumerate(features_per_step):
+                t = i / features_hz_effective
+                f.write(
+                    f"{t:.3f},{feat['tonic']},{feat['mode']},"
+                    f"{feat['chord']},"
+                    f"{feat['tempo']:.3f},{feat['peak_phase']:.4f},"
+                    f"{feat['peak_freq']:.4f},{feat['n_companions']},"
+                    f"{feat['consonance']:.4f}\n"
+                )
+        print(f"Dumped features to {csv_path}")
+        return
 
     # Scrollable Tk window. Background matches the paper figure so the
     # scrollbar gutter doesn't break the ink-on-paper illusion.
@@ -955,8 +1109,14 @@ def main() -> None:
                     help="Audio file for playback (overrides config)")
     ap.add_argument("--state", type=Path, default=None,
                     help="State parquet path (default: output/<audio_stem>.parquet)")
+    ap.add_argument("--screenshot-at", type=float, default=None,
+                    help="Render a single frame at this time (sec) and exit.")
+    ap.add_argument("--screenshot-path", type=Path, default=None,
+                    help="Where to save the screenshot PNG.")
     args = ap.parse_args()
-    run(args.config, audio_override=args.audio, state_override=args.state)
+    run(args.config, audio_override=args.audio, state_override=args.state,
+        screenshot_at=args.screenshot_at,
+        screenshot_path=args.screenshot_path)
 
 
 if __name__ == "__main__":

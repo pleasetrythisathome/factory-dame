@@ -27,3 +27,86 @@ class OSCBroadcaster:
                                  drive.astype(np.float32).tolist())
         self.client.send_message(f"/{layer}/residual",
                                  residual.astype(np.float32).tolist())
+
+    def send_features(self, features: dict) -> None:
+        """Emit perceptual rollups on the /features/* namespace.
+
+        Expects a dict with keys: tempo (float BPM), tempo_conf (0-1),
+        tonic (str pitch class), mode ("major"/"minor"), key_conf (0-1),
+        consonance (0-1). Missing keys are skipped.
+        """
+        if not self.enabled:
+            return
+        if "tempo" in features:
+            self.client.send_message("/features/tempo",
+                                     float(features["tempo"]))
+        if "tempo_conf" in features:
+            self.client.send_message("/features/tempo_confidence",
+                                     float(features["tempo_conf"]))
+        if "tonic" in features:
+            self.client.send_message("/features/key",
+                                     str(features["tonic"]))
+        if "mode" in features:
+            self.client.send_message("/features/mode",
+                                     str(features["mode"]))
+        if "key_conf" in features:
+            self.client.send_message("/features/key_confidence",
+                                     float(features["key_conf"]))
+        if "chord" in features:
+            self.client.send_message("/features/chord",
+                                     str(features["chord"]))
+        if "chord_quality" in features:
+            self.client.send_message("/features/chord_quality",
+                                     str(features["chord_quality"]))
+        if "chord_conf" in features:
+            self.client.send_message("/features/chord_confidence",
+                                     float(features["chord_conf"]))
+        if "consonance" in features:
+            self.client.send_message("/features/consonance",
+                                     float(features["consonance"]))
+
+    def send_rhythm_structure(self, rhythm: dict) -> None:
+        """Emit the multi-clock rhythm primitives on /rhythm/*.
+
+        The peak oscillator carries the main beat; companions carry
+        phase-locked subdivisions (triplets, half-time, polyrhythms).
+        Downstream consumers (router, TouchDesigner) turn the phases
+        into gates, CV, or visual triggers.
+
+        Messages:
+            /rhythm/peak/freq   float Hz
+            /rhythm/peak/bpm    float BPM
+            /rhythm/peak/phase  float radians, (-π, π]
+            /rhythm/peak/idx    int   oscillator index
+            For each companion i:
+                /rhythm/companion/<i>/ratio  [p, q] ints
+                /rhythm/companion/<i>/freq   float Hz
+                /rhythm/companion/<i>/phase  float radians
+                /rhythm/companion/<i>/plv    float 0-1
+            /rhythm/companion/count  int total number of companions
+        """
+        if not self.enabled:
+            return
+        peak = rhythm.get("peak", {})
+        if peak:
+            self.client.send_message("/rhythm/peak/freq",
+                                     float(peak.get("freq", 0.0)))
+            self.client.send_message("/rhythm/peak/bpm",
+                                     float(peak.get("bpm", 0.0)))
+            self.client.send_message("/rhythm/peak/phase",
+                                     float(peak.get("phase", 0.0)))
+            self.client.send_message("/rhythm/peak/idx",
+                                     int(peak.get("idx", 0)))
+        companions = rhythm.get("companions", [])
+        self.client.send_message("/rhythm/companion/count", len(companions))
+        for i, comp in enumerate(companions):
+            base = f"/rhythm/companion/{i}"
+            self.client.send_message(f"{base}/ratio",
+                                     [int(comp["ratio_p"]),
+                                      int(comp["ratio_q"])])
+            self.client.send_message(f"{base}/freq",
+                                     float(comp["freq"]))
+            self.client.send_message(f"{base}/phase",
+                                     float(comp["phase"]))
+            self.client.send_message(f"{base}/plv",
+                                     float(comp["plv"]))
