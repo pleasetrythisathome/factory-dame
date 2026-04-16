@@ -1,0 +1,421 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# ── Transaction provenance (default graph) ──────────────────────
+INSERT DATA {
+  narr:Tx_20260416T230000Z a prov:Activity ;
+    dct:title "Feedback: novelty is the whole point, and build deep-first not shallow-first" ;
+    prov:generatedAtTime "2026-04-16T23:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-04-16-feedback-novelty-deep-first.md" ;
+    narr:originRef "main" ;
+    prov:generated
+      narr:Sample_NoveltyDeepFirst_20260416,
+      narr:Narrative_NoveltyAsNorthStar,
+      narr:Narrative_DeepFirstNotShallowFirst,
+      narr:Claim_NoveltyNorthStar,
+      narr:Claim_PragmaticNotNorthStar,
+      narr:Claim_DefaultToNovelArchitecturalChoice,
+      narr:Claim_CompetentBeatTrackerFailureMode,
+      narr:Claim_DeepFirstPhaseModel,
+      narr:Claim_ShallowFirstFailureMode,
+      narr:Claim_VolumeOverPerfectionScopeLimit,
+      narr:Claim_NoveltyConstraintOnCounterweight,
+      narr:Claim_Task011DeepFirstPlan,
+      narr:Obs_NoveltyQuote,
+      narr:Obs_DeepFirstQuote,
+      narr:Obs_ShallowFirstFailureModeDesc,
+      narr:Obs_DeepFirstAlternativeDesc,
+      narr:Obs_NRTWellOfNovelty,
+      narr:Obs_Task011Phase1Desc,
+      narr:StyleObs_NoveltyDeepFirst_Antithesis,
+      narr:StyleObs_NoveltyDeepFirst_ToneAuthoritative,
+      narr:StyleObs_NoveltyDeepFirst_JargonPolicy,
+      narr:StyleObs_NoveltyDeepFirst_FirstPerson,
+      narr:StyleMetrics_NoveltyDeepFirst .
+} ;
+
+# ── Sample ───────────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T230000Z {
+    narr:Sample_NoveltyDeepFirst_20260416 a narr:Sample ;
+      dct:title "Feedback: novelty is the whole point, and build deep-first not shallow-first" ;
+      dct:created "2026-04-16"^^xsd:date ;
+      dct:description "Project-strategy-level feedback from Scarlet during the voice-extraction architecture discussion (2026-04-16). Two interlocking claims: (1) factory-dame exists to do something genuinely novel that couldn't exist before AI-enabled complex-systems development; (2) build each component to publishable/novel depth before moving to the next, rather than sweeping shallowly across all components first." ;
+      narr:inputLength 5241 .
+  }
+} ;
+
+# ── New Narratives ───────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T230000Z {
+
+    narr:Narrative_NoveltyAsNorthStar a narr:Narrative ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:broader narr:PositioningThesis ;
+      skos:note "Scarlet's explicit north-star criterion for factory-dame: the project has no goal unless it does something truly novel and incredible that couldn't exist before AI-enabled complex-systems development. 'Pragmatic' is not a north star. Every architectural decision must be checked against whether it leverages NRT's distinctive properties or merely replicates what DAW plugins and eurorack modules already do. Shipping a competent NRT-powered beat tracker is a failure mode; shipping per-voice dynamic phase-coherent motor networks that generate polyrhythmic CV for arbitrary live audio is the goal." ;
+      narr:theme "Novelty as the only valid north star for factory-dame: if it replicates existing DSP capabilities, there is no reason to have built it" .
+
+    narr:Narrative_DeepFirstNotShallowFirst a narr:Narrative ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:broader narr:FocusSequencing ;
+      skos:note "A direct correction to the default engineering pattern of phased shallow-then-deep development. Each component must be built to publishable/novel depth before moving to the next. The failure mode of shallow-first: the shallow system ships, works well enough, pressure to go deep evaporates, and the novel capability never materializes. The alternative: each phase is a standalone novel capability you could ship. This is slower per-phase but arrives at genuinely novel ground. The horizontal shallow sweep never does." ;
+      narr:theme "Build each component to publishable depth first, then assemble — never sweep shallowly across all components and plan to deepen later" .
+  }
+} ;
+
+# ── New Claims ───────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T230000Z {
+
+    narr:Claim_NoveltyNorthStar a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Scarlet's verbatim: 'I have no goal with this project unless it does something truly novel and incredible.' Factory-dame exists specifically to do something that couldn't exist before AI-enabled complex-systems development unlocked it." ;
+      narr:aboutNode narr:Narrative_NoveltyAsNorthStar ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_NoveltyAsNorthStar .
+
+    narr:Claim_PragmaticNotNorthStar a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "'Pragmatic' is explicitly not a north star for factory-dame. The operative question is: 'Does this produce a capability that genuinely didn't exist before?' When choosing between a proven-but-boring approach and a harder-but-novel approach, default to the novel one — even if it's more work, even if the first version is rough." ;
+      narr:aboutNode narr:Narrative_NoveltyAsNorthStar ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_NoveltyAsNorthStar .
+
+    narr:Claim_DefaultToNovelArchitecturalChoice a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Every architectural decision should be checked: is this choice leveraging NRT's distinctive properties, or is this a choice that could have been made in a conventional DSP pipeline? Default to the more-ambitious architectural choice over the pragmatic one, unless there is a specific reason (time, budget, external constraint) the ambitious one is unworkable in the session. The NRT analysis-is-synthesis property (Narrative_AnalysisIsSynthesis) is the specific well of novelty." ;
+      narr:aboutNode narr:Narrative_NoveltyAsNorthStar ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_AnalysisIsSynthesis .
+
+    narr:Claim_CompetentBeatTrackerFailureMode a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Shipping a 'competent NRT-powered beat tracker' is a failure mode. Conventional beat trackers, chromagrams, and filter banks already exist. If the project ends up replicating what DAW plugins and eurorack modules already do, there is no reason to have built it. The goal is 'per-voice dynamic phase-coherent motor networks that generate polyrhythmic CV for arbitrary live audio'." ;
+      narr:aboutNode narr:Narrative_NoveltyAsNorthStar ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:challenges narr:Narrative_NRTAsDynamicalSystemsAlternative .
+
+    narr:Claim_DeepFirstPhaseModel a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "The correct phasing model: P1 = component A built to publishable/novel depth (not an MVP, the real thing); P2 = component B built the same way; P3 = component C same. Each phase is a standalone novel capability you could ship. This is slower per-phase but arrives at genuinely novel ground." ;
+      narr:aboutNode narr:Narrative_DeepFirstNotShallowFirst ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_DeepFirstNotShallowFirst .
+
+    narr:Claim_ShallowFirstFailureMode a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "The failure mode of shallow-first phasing: ship the shallow system, it works, the pressure to go deep evaporates because the shallow version is 'fine,' and the novel capability never materializes. You end up with a competent implementation of a conventional approach. The horizontal shallow sweep never arrives at genuinely novel ground." ;
+      narr:aboutNode narr:Narrative_DeepFirstNotShallowFirst ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_DeepFirstNotShallowFirst .
+
+    narr:Claim_VolumeOverPerfectionScopeLimit a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Volume-over-perfection still applies to content and artifacts (from earlier feedback) — but NOT to core technical capabilities. Content goes wide; capabilities go deep. This scopes the earlier volume-over-perfection principle and prevents it from being misapplied to architectural decisions." ;
+      narr:aboutNode narr:Narrative_DeepFirstNotShallowFirst ;
+      narr:hasConvictionLevel narr:Conviction_Foundation .
+
+    narr:Claim_NoveltyConstraintOnCounterweight a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "The creative counterweight role now includes the constraint that factory-dame must be novel, not merely creative. A competent replica of existing tech doesn't satisfy the counterweight role — the project exists to do something that couldn't exist before, not just to be a creative outlet." ;
+      narr:aboutNode narr:Narrative_CreativeCounterweightToAswritten ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_CreativeCounterweightToAswritten .
+
+    narr:Claim_Task011DeepFirstPlan a narr:Claim ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "task-011 (CV/MIDI/OSC router) deep-first plan: Phase 1 = voice identity done to publishable depth (phase-coherence clustering, voice tracking across frames, tested on multiple real tracks, visually legible — not 'simple threshold clustering we'll improve later'); Phase 2 = per-voice rhythm association to the same depth; Phase 3 = per-voice motor coupling (reading existing motor state as multi-voice; or per-voice motor network pool if reading proves insufficient). Each phase is a standalone novel capability you could ship." ;
+      narr:aboutNode narr:Narrative_DeepFirstNotShallowFirst ;
+      narr:hasConvictionLevel narr:Conviction_Boulder ;
+      narr:supports narr:Narrative_LiveNRTModularBridge .
+  }
+} ;
+
+# ── Observations ─────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T230000Z {
+
+    narr:Obs_NoveltyQuote a narr:Observation ;
+      skos:broader narr:Signals ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Scarlet's verbatim north-star statement for factory-dame" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 318 ;
+          oa:end 396
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "I have no goal with this project unless it does something truly novel and incredible." ;
+          oa:prefix "### 1. Novelty is the whole point\n\n> " ;
+          oa:suffix "\n\nFactory-dame exists specifically"
+        ]
+      ] .
+
+    narr:Obs_DeepFirstQuote a narr:Observation ;
+      skos:broader narr:Signals ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Scarlet's verbatim correction of the shallow-first engineering pattern — the full blockquote" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 1147 ;
+          oa:end 1347
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "build the fully baked, full-depth novel capability of single components first and then assemble those to create the full system" ;
+          oa:prefix "we want to change the focus there and do things where we " ;
+          oa:suffix ". Instead of doing the deep or the shallow"
+        ]
+      ] .
+
+    narr:Obs_ShallowFirstFailureModeDesc a narr:Observation ;
+      skos:broader narr:FailureModesSafety ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Concrete description of the shallow-first failure mode: the shallow system ships, works, pressure to go deep evaporates" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 1780 ;
+          oa:end 1940
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "you ship the shallow system, it works, the pressure to go deep evaporates because the shallow version is \"fine,\" and the novel capability never materializes" ;
+          oa:prefix "The failure mode Scarlet is naming: " ;
+          oa:suffix ". You end up with a competent implementation"
+        ]
+      ] .
+
+    narr:Obs_DeepFirstAlternativeDesc a narr:Observation ;
+      skos:broader narr:FocusSequencing ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "The alternative phasing model: each phase is a standalone novel capability you could ship" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 2020 ;
+          oa:end 2130
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "P1: component A built to publishable/novel depth. Not an MVP, the real thing." ;
+          oa:prefix "The alternative:\n\n- " ;
+          oa:suffix "\n- P2: component B built the same way."
+        ]
+      ] .
+
+    narr:Obs_NRTWellOfNovelty a narr:Observation ;
+      skos:broader narr:LeverageProfile ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Identifies Narrative_AnalysisIsSynthesis as the specific well of novelty that every architectural decision should be checked against" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 680 ;
+          oa:end 830
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "The NRT analysis-is-synthesis property (`Narrative_AnalysisIsSynthesis`) is the specific well of novelty." ;
+          oa:prefix "- " ;
+          oa:suffix " Every architectural decision should be checked"
+        ]
+      ] .
+
+    narr:Obs_Task011Phase1Desc a narr:Observation ;
+      skos:broader narr:Milestones ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Concrete deep-first specification for task-011 Phase 1: voice identity to publishable depth" ;
+      oa:hasSelector [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 4680 ;
+          oa:end 4870
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Phase 1 is **voice identity done to publishable depth** — phase-coherence clustering, voice tracking across frames, tested on multiple real tracks, visually legible." ;
+          oa:prefix "- " ;
+          oa:suffix " Not \"simple threshold clustering we'll improve later.\""
+        ]
+      ] .
+  }
+} ;
+
+# ── Style Observations ───────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T230000Z {
+
+    narr:StyleObs_NoveltyDeepFirst_Antithesis a narr:StyleObservation ;
+      skos:broader narr:Antithesis ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Sustained antithetical structure throughout: 'proven-but-boring vs. harder-but-novel', 'shallow-first vs. deep-first', 'content goes wide; capabilities go deep', 'Not an MVP, the real thing.' Antithesis is the primary rhetorical engine of both claims." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 2290 ;
+          oa:end 2360
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "Content goes wide; capabilities go deep." ;
+          oa:prefix "Volume-over-perfection still applies to *content and artifacts* (from earlier feedback) — but NOT to core technical capabilities. " ;
+          oa:suffix "\n\n## Scope"
+        ]
+      ] .
+
+    narr:StyleObs_NoveltyDeepFirst_ToneAuthoritative a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Authoritative, directive register throughout the 'How to apply' section. Imperative mood ('stop and ask', 'Default to', 'Check every scope decision'). First-person self-correction ('This is a direct correction to my default engineering pattern') adds candor and authority simultaneously." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 2400 ;
+          oa:end 2530
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "When I'm tempted to say \"we can improve this later,\" stop and ask: am I deferring depth that will never get added?" ;
+          oa:prefix "- " ;
+          oa:suffix "\n- Default to the more-ambitious architectural choice"
+        ]
+      ] .
+
+    narr:StyleObs_NoveltyDeepFirst_JargonPolicy a narr:StyleObservation ;
+      skos:broader narr:JargonPolicy ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Domain-specific jargon used precisely and without definition: NRT, CV, polyrhythmic, phase-coherent, motor networks, eurorack, chromagrams, filter banks, DAW plugins. IRI-style references to graph entities embedded inline (Narrative_AnalysisIsSynthesis, Narrative_LiveNRTModularBridge) — treating the knowledge graph as a shared vocabulary." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 860 ;
+          oa:end 990
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "per-voice dynamic phase-coherent motor networks that generate polyrhythmic CV for arbitrary live audio" ;
+          oa:prefix "Shipping \"" ;
+          oa:suffix "\" is the goal."
+        ]
+      ] .
+
+    narr:StyleObs_NoveltyDeepFirst_FirstPerson a narr:StyleObservation ;
+      skos:broader narr:FirstPerson ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Unusual first-person self-implication: 'This is a direct correction to my default engineering pattern. I kept proposing phased plans...' The author (AI/Claude) is the subject of the correction, not just the recorder. Creates accountability and models the corrected behavior explicitly." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_NoveltyDeepFirst_20260416 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 1490 ;
+          oa:end 1590
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "This is a direct correction to my default engineering pattern. I kept proposing phased plans" ;
+          oa:prefix "\n\n" ;
+          oa:suffix " that looked like:"
+        ]
+      ] .
+  }
+} ;
+
+# ── Style Metrics ────────────────────────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260416T230000Z {
+    narr:StyleMetrics_NoveltyDeepFirst a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_NoveltyDeepFirst_20260416 ;
+      skos:note "Mixed register: structured policy-document prose (H2/H3 sections, bold directives, bullet lists) with embedded verbatim blockquotes in Scarlet's casual voice. Active voice dominant in directives and claims. High domain jargon (NRT, CV, eurorack, phase-coherent, motor networks). Short punchy antithetical couplets alternate with longer elaborating paragraphs. Self-implicating first-person in the failure-mode analysis section is distinctive." ;
+      narr:AverageSentenceLength "18"^^xsd:integer ;
+      narr:ActiveVoiceRatio "0.81"^^xsd:decimal ;
+      narr:JargonDensity "0.16"^^xsd:decimal .
+  }
+} ;
+
+# ── Updates to existing entities ─────────────────────────────────
+# UPDATE 1: Narrative_LiveNRTModularBridge — reframe from 'ship something functional'
+# to 'ship something that couldn't exist before'
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_LiveNRTModularBridge skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T230000Z {
+    narr:Narrative_LiveNRTModularBridge skos:note "A product-level unification of the existing factory-dame backlog into a single coherent use case: hardware or software that listens to live audio and outputs CV, MIDI, and OSC for all perceptual parameters — tempo, tonic, key, dynamics — so a modular synthesizer can improvise live alongside arbitrary audio (jazz open mic, DJ sets, streamed tracks, field recordings). Architecturally founded on Narrative_AnalysisIsSynthesis: the same oscillator state driving generative art IS the CV signal. No direct competitor in the 'listen to arbitrary audio, output continuous musical CV' space. Reframed per 2026-04-16 feedback: the goal is not to ship something functional but to ship something that couldn't exist before — a capability genuinely unlocked by AI-enabled complex-systems development. Shipping a competent NRT-powered beat tracker would be a failure mode." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_LiveNRTModularBridge skos:note ?oldNote .
+  }
+} ;
+
+# UPDATE 2: Narrative_CreativeCounterweightToAswritten — add novelty constraint
+DELETE {
+  GRAPH ?g {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T230000Z {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note "Aswritten demands speed and pragmatism ('dumber and faster'). The generative 3D project provides breathing room and a space for purely creative work unconstrained by business velocity. Updated per 2026-04-16 feedback: the counterweight role now includes the constraint that factory-dame must be novel, not merely creative. A competent replica of existing tech (DAW plugins, eurorack modules) does not satisfy the counterweight role — the project exists to do something that couldn't exist before AI-enabled complex-systems development." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Narrative_CreativeCounterweightToAswritten skos:note ?oldNote .
+  }
+} ;
+
+# UPDATE 3: Claim_Task011CVMIDIOSCRouter — add deep-first phased plan
+DELETE {
+  GRAPH ?g {
+    narr:Claim_Task011CVMIDIOSCRouter skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T230000Z {
+    narr:Claim_Task011CVMIDIOSCRouter skos:note "task-011 (CV/MIDI/OSC output router) is the new backlog ticket created during this session, with task-004 and task-005 as dependencies. It subscribes to the live perceptual state stream and maps extractor outputs to CV channels, MIDI messages, and OSC. task-010 (OSC schema documentation) becomes load-bearing as the consumer contract. Per 2026-04-16 deep-first feedback, task-011 is to be built deep-first: Phase 1 = voice identity to publishable depth (phase-coherence clustering, voice tracking across frames, tested on multiple real tracks, visually legible — not 'simple threshold clustering we'll improve later'); Phase 2 = per-voice rhythm association to the same depth; Phase 3 = per-voice motor coupling (reading existing motor state as multi-voice; or per-voice motor network pool if reading proves insufficient). Each phase is a standalone novel capability you could ship." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Claim_Task011CVMIDIOSCRouter skos:note ?oldNote .
+  }
+}
