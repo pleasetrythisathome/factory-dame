@@ -1,0 +1,113 @@
+# Engine configuration. Equivalent EDN can be added for Clojure consumers later.
+
+[audio]
+input_file = "test.wav"
+# Internal processing sample rate. Lower = faster. 16 kHz captures up to ~7 kHz
+# which covers the pitch band we care about (30 Hz – 4 kHz).
+sample_rate = 16000
+
+[cochlea]
+# Gammatone filterbank spanning pitch + rhythm-relevant bands.
+n_channels = 64
+low_hz = 30.0
+high_hz = 4000.0
+
+[rhythm_grfnn]
+# Slow oscillators covering musical tempos and sub-beat divisions.
+# 0.5–10 Hz = 30–600 BPM equivalent range.
+n_oscillators = 50
+low_hz = 0.5
+high_hz = 10.0
+# Integration step (seconds). Must be small relative to fastest oscillator period.
+dt = 0.002
+# Hopf parameters. alpha closer to zero = closer to bifurcation = stronger
+# resonance to weak inputs (onset trains are sparse).
+alpha = -0.02
+beta1 = -1.0
+beta2 = -1.0
+delta1 = 0.0
+delta2 = 0.0
+epsilon = 1.0
+# Input coupling gain. Rhythm drive is a sparse onset signal so we push
+# hard to get oscillators into their limit-cycle regime.
+input_gain = 80.0
+
+[rhythm_grfnn.hebbian]
+# Attunement: weights between co-active rhythm oscillators strengthen over
+# time, forming learned rhythmic attractors (familiar grooves). When enabled,
+# the final W matrix is saved to output/<audio_stem>.weights.npz.
+enabled = true
+learn_rate = 0.5
+weight_decay = 0.05
+
+[rhythm_grfnn.delay]
+# Strong anticipation: self-coupled delayed feedback lets the rhythm network
+# phase-lead the driver. tau = delay in seconds (0 disables). A 100ms delay
+# is roughly the feedback latency for hand-tapping experiments in the paper.
+tau = 0.1
+gain = 0.2
+
+[rhythm_grfnn.noise]
+# Small stochastic kicks per step. Keeps oscillators lively and breaks
+# symmetry. Typical useful range: 0.001 – 0.05.
+amp = 0.02
+seed = 0
+
+[pitch_grfnn]
+n_oscillators = 100
+low_hz = 30.0
+high_hz = 4000.0
+dt = 0.0000625   # 16 kHz rate
+alpha = -0.05
+beta1 = -1.0
+beta2 = -1.0
+delta1 = 0.0
+delta2 = 0.0
+epsilon = 1.0
+# Pitch input is a (dense) band-limited audio signal. With the FIR gammatone
+# front-end normalized to |H(fc)|=1, a well-driven channel produces band
+# amplitudes on the order of the source audio amplitude. 0.1 reaches healthy
+# |z| without saturating on typical mastered material.
+input_gain = 0.1
+
+[pitch_grfnn.hebbian]
+# Attunement: weights between co-active pitch oscillators reveal implied
+# tonal hierarchy and harmonic context over time.
+enabled = true
+learn_rate = 0.2
+weight_decay = 0.02
+
+[pitch_grfnn.delay]
+# Delay coupling on the pitch network is rarely useful musically — the
+# timescales are too short. Left here for symmetry and experimentation.
+tau = 0.0
+gain = 0.0
+
+[pitch_grfnn.noise]
+amp = 0.01
+seed = 1
+
+[phantom]
+# Threshold for "this oscillator is resonating from memory, not drive".
+# Phantom activation = |z| > amp_thresh  AND  input_envelope < drive_thresh
+amp_thresh = 0.1
+drive_thresh = 0.02
+
+[state_log]
+# Downsample state snapshots to this rate for disk logging.
+# Rhythm network naturally runs at ~500 Hz, but 60 Hz snapshots are plenty
+# for both the viewer and downstream particle/synth consumers.
+snapshot_hz = 60
+# Cadence (Hz) for capturing Hebbian weight matrix snapshots over time.
+# 0 disables history (only the final W is saved). 2–4 Hz is plenty for
+# animating the learning evolution in the viewer.
+w_snapshot_hz = 2
+# Output directory for state files. Each audio file produces its own
+# {audio_stem}.parquet here, so repeated runs don't overwrite each other.
+output_dir = "output"
+
+[osc]
+enabled = true
+host = "127.0.0.1"
+port = 57120   # SuperCollider default; harmless elsewhere
+# Broadcast at snapshot_hz. Each layer emits /rhythm/z and /pitch/z as float arrays.

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+output/
+*.parquet
+*.weights.npz
+test.wav
+uv.lock
+.pytest_cache/
