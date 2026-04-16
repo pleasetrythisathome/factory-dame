@@ -361,6 +361,11 @@ def run(config_path: Path, audio_override: Path | None = None,
     table = pq.read_table(state_path)
     rt, ramp, rpha, rph, rres, rf = _extract_layer(table, "rhythm")
     pt, pamp, ppha, pph, pres, pf = _extract_layer(table, "pitch")
+    # Optional motor layer from the two-layer pulse network.
+    layers_in_file = set(table.column("layer").to_pylist())
+    has_motor = "motor" in layers_in_file
+    if has_motor:
+        mt, mamp, mpha, mph, mres, mf = _extract_layer(table, "motor")
 
     # Optional learned-weights file (alongside the parquet). If present and
     # contains a W history, the viewer will animate the matrix evolving
@@ -398,17 +403,26 @@ def run(config_path: Path, audio_override: Path | None = None,
     ramp_pad = _pad_for_window(ramp, half_samples)
     pph_pad = _pad_for_window(pph.astype(np.float32), half_samples)
     rph_pad = _pad_for_window(rph.astype(np.float32), half_samples)
+    mamp_pad = (_pad_for_window(mamp, half_samples)
+                if has_motor else None)
 
     # Figure layout — heatmaps full width on top, pitch+rhythm waterfalls
     # split the bottom row. Waterfall widths match their oscillator counts
     # roughly (pitch has 2× as many, so it gets 2× the horizontal space).
-    # Tall figure intended to be viewed in a scrollable container. We add
-    # an optional 6th row for learned-weight matrices when weights.npz is
-    # present.
+    # Tall figure intended to be viewed in a scrollable container. Adds
+    # optional rows for motor (two-layer pulse) and learned weights.
+    show_motor_row = has_motor
     show_w_row = has_pW or has_rW
-    n_rows = 6 if show_w_row else 5
-    height_ratios = ([3, 3, 3, 2, 1, 3] if show_w_row else [3, 3, 3, 2, 1])
-    fig_h = 17 if show_w_row else 14
+    base_rows = [3, 3, 3, 2, 1]       # pitch heat, rhythm heat, scopes, phase, phantom
+    extra = []
+    if show_motor_row:
+        extra.append(("motor", 2))    # compact heatmap
+    if show_w_row:
+        extra.append(("w", 3))
+    row_names = ["pitch", "rhythm", "scope", "phase", "phantom"] + [e[0] for e in extra]
+    height_ratios = base_rows + [e[1] for e in extra]
+    n_rows = len(height_ratios)
+    fig_h = 14 + (2 if show_motor_row else 0) + (3 if show_w_row else 0)
     fig = plt.figure(figsize=(14, fig_h), constrained_layout=True,
                      facecolor=_PAPER)
     gs = GridSpec(
@@ -424,22 +438,29 @@ def run(config_path: Path, audio_override: Path | None = None,
     ax_prs = fig.add_subplot(gs[3, 1])   # rhythm phase coherence
     ax_php = fig.add_subplot(gs[4, 0])   # pitch phantom+residual
     ax_phr = fig.add_subplot(gs[4, 1])   # rhythm phantom+residual
-    ax_Wp = fig.add_subplot(gs[5, 0]) if show_w_row else None
-    ax_Wr = fig.add_subplot(gs[5, 1]) if show_w_row else None
+    # Optional rows beyond row 4.
+    extra_row_idx = 5
+    ax_motor = None
+    if show_motor_row:
+        ax_motor = fig.add_subplot(gs[extra_row_idx, :])
+        extra_row_idx += 1
+    ax_Wp = fig.add_subplot(gs[extra_row_idx, 0]) if show_w_row else None
+    ax_Wr = fig.add_subplot(gs[extra_row_idx, 1]) if show_w_row else None
     fig.suptitle(f"NEURAL RESONANCE  ·  {audio_path.name}".upper(),
                  color=_INK)
 
-    # Percentile-based vmax + gamma<1 (PowerNorm) to boost low-amplitude
-    # detail. Keeps outliers from flattening everything to near-paper white.
+    # Percentile-based vmax + aggressive gamma<1 (PowerNorm) to boost
+    # low-amplitude detail. Pitch especially benefits from strong gamma
+    # because music has dozens of weakly-active oscillators at any time.
     from matplotlib.colors import PowerNorm
-    p_vmax = float(max(np.percentile(pamp, 90), 1e-3))
+    p_vmax = float(max(np.percentile(pamp, 80), 1e-3))
     r_vmax = float(max(np.percentile(ramp, 90), 1e-3))
 
     init_p = np.zeros((len(pf), window_samples), dtype=np.float32)
     im_p = ax_p.imshow(
         init_p, aspect="auto", origin="lower",
         extent=(-WINDOW_S / 2, WINDOW_S / 2, 0, len(pf)),
-        cmap=_CMAP_PITCH, norm=PowerNorm(gamma=0.6, vmin=0, vmax=p_vmax),
+        cmap=_CMAP_PITCH, norm=PowerNorm(gamma=0.35, vmin=0, vmax=p_vmax),
         interpolation="nearest",
     )
     ax_p.set_title(f"PITCH  ·  {len(pf)} oscillators  ·  "
@@ -463,6 +484,40 @@ def run(config_path: Path, audio_override: Path | None = None,
     ax_r.set_yticks(r_ticks)
     ax_r.set_yticklabels([f"{rf[i]:.2f}" for i in r_ticks])
     ax_r.set_xlabel(f"time offset (s)  ·  ±{WINDOW_S/2:.0f}s around playhead")
+
+    # Motor heatmap (two-layer pulse network's motor-cortex layer).
+    im_motor = None
+    if show_motor_row:
+        m_vmax = float(max(np.percentile(mamp, 90), 1e-3))
+        init_m = np.zeros((len(mf), window_samples), dtype=np.float32)
+        # Reuse the rhythm cmap but shift palette position to distinguish
+        # the motor layer visually from sensory rhythm.
+        from matplotlib.colors import LinearSegmentedColormap, PowerNorm
+        cmap_motor = LinearSegmentedColormap.from_list(
+            "nd_motor_ink",
+            [_PAPER, "#D6C4B1", "#8E7A58", "#5C3F1C", "#2C1B08"],
+        )
+        im_motor = ax_motor.imshow(
+            init_m, aspect="auto", origin="lower",
+            extent=(-WINDOW_S / 2, WINDOW_S / 2, 0, len(mf)),
+            cmap=cmap_motor,
+            norm=PowerNorm(gamma=0.6, vmin=0, vmax=m_vmax),
+            interpolation="nearest",
+        )
+        ax_motor.set_title(
+            f"MOTOR  ·  two-layer pulse  ·  {len(mf)} oscillators  ·  "
+            f"{mf[0]:.2f}–{mf[-1]:.2f} Hz"
+        )
+        ax_motor.set_ylabel("freq")
+        m_ticks = np.linspace(0, len(mf) - 1, 6).astype(int)
+        ax_motor.set_yticks(m_ticks)
+        ax_motor.set_yticklabels([f"{mf[i]:.2f}" for i in m_ticks])
+        # Primary playhead on motor too.
+        m_line = ax_motor.axvline(0, color=_INK, linewidth=2.0)
+        m_line.set_path_effects([
+            Stroke(linewidth=4.5, foreground=_PAPER, alpha=0.95),
+            Normal(),
+        ])
 
     # Primary playhead: thick ink line at x=0 with paper halo so it reads
     # against either the light or the deep-ink regions of the heatmaps.
@@ -759,6 +814,8 @@ def run(config_path: Path, audio_override: Path | None = None,
 
         im_p.set_data(slice_window(pamp_pad, now))
         im_r.set_data(slice_window(ramp_pad, now))
+        if im_motor is not None and mamp_pad is not None:
+            im_motor.set_data(slice_window(mamp_pad, now))
 
         # Lookup mode-locks for the current snapshot index. Cheap.
         step_idx_p = min(int(round(now * snap_hz)), len(locks_per_step_p) - 1)
@@ -803,6 +860,8 @@ def run(config_path: Path, audio_override: Path | None = None,
                    scope_p["current"], *scope_p["history"], scope_p["fill"],
                    scope_r["current"], *scope_r["history"], scope_r["fill"],
                    im_psp, im_prs, im_php, im_phr]
+        if im_motor is not None:
+            artists.append(im_motor)
         if im_Wp is not None:
             artists.append(im_Wp)
         if im_Wr is not None:

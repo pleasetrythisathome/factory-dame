@@ -53,6 +53,34 @@ gain = 0.2
 amp = 0.02
 seed = 0
 
+[motor_grfnn]
+# Two-layer pulse network (Harding/Kim/Large 2025 Fig. 4): a second
+# rhythm-scale GrFNN modeling motor-cortex prediction, bidirectionally
+# coupled to the sensory rhythm layer. Sustains pulse activity across
+# audio silences and reinforces the felt beat.
+enabled = true
+n_oscillators = 50
+low_hz = 0.5
+high_hz = 10.0
+dt = 0.002
+# Lightly damped (less than sensory's -0.02) so motor sustains activity
+# across audio silences, but damped enough to avoid saturating at the
+# integrator clamp under continuous drive.
+alpha = -0.05
+beta1 = -1.0
+beta2 = -1.0
+delta1 = 0.0
+delta2 = 0.0
+epsilon = 1.0
+input_gain = 1.0
+# Forward (sensory → motor): modest — sensory.z typically peaks at ~0.15
+# on mastered material, so forward_gain ~0.3 yields a motor SS amplitude
+# of ~0.1 with the alpha above.
+# Backward (motor → sensory): very small so the feedback modulates rather
+# than driving sensory into saturation.
+forward_gain = 0.3
+backward_gain = 0.03
+
 [pitch_grfnn]
 n_oscillators = 100
 low_hz = 30.0

@@ -151,6 +151,15 @@ def run(config_path: Path, audio_override: Path | None = None,
 
     rhythm_net = _build_grfnn(r_cfg)
 
+    # Optional motor-cortex layer — a second rhythm-scale GrFNN with
+    # bidirectional coupling to the sensory rhythm network. Enables the
+    # full "felt pulse" / missing-pulse effect from NRT Fig. 4.
+    m_cfg = cfg.get("motor_grfnn", {})
+    motor_enabled = bool(m_cfg.get("enabled", False))
+    motor_net = _build_grfnn(m_cfg) if motor_enabled else None
+    forward_gain = float(m_cfg.get("forward_gain", 0.0))
+    backward_gain = float(m_cfg.get("backward_gain", 0.0))
+
     # Pitch GrFNN runs at audio rate. Each oscillator is driven by nearby
     # cochlear channels weighted by frequency proximity.
     p_cfg = cfg["pitch_grfnn"]
@@ -168,10 +177,11 @@ def run(config_path: Path, audio_override: Path | None = None,
         out_path.parent.mkdir(parents=True, exist_ok=True)
     else:
         out_path = state_path_for(cfg, cfg_dir, audio_path)
-    state = StateLog(
-        out_path,
-        layers={"rhythm": {"f": rhythm_net.f}, "pitch": {"f": pitch_net.f}},
-    )
+    layers_meta: dict = {"rhythm": {"f": rhythm_net.f},
+                          "pitch": {"f": pitch_net.f}}
+    if motor_net is not None:
+        layers_meta["motor"] = {"f": motor_net.f}
+    state = StateLog(out_path, layers=layers_meta)
     osc_cfg = cfg["osc"]
     osc = OSCBroadcaster(osc_cfg["host"], osc_cfg["port"], osc_cfg["enabled"])
     phantom_cfg = cfg["phantom"]
@@ -202,14 +212,21 @@ def run(config_path: Path, audio_override: Path | None = None,
         # Cast to complex — real drive injects to real component.
         pitch_net.step(drive_pitch.astype(np.complex128))
 
-        # Rhythm network: advance when its own clock catches up.
+        # Rhythm network: advance when its own clock catches up. If the
+        # motor layer is active, we advance both in lockstep and wire up
+        # bidirectional coupling inline.
         while rhythm_step * rhythm_dt <= t and rhythm_step < n_rhythm_steps:
             drive_r = np.full(
                 rhythm_net.n,
                 rhythm_drive_stepped[rhythm_step],
                 dtype=np.complex128,
             )
+            if motor_net is not None and backward_gain != 0.0:
+                drive_r = drive_r + backward_gain * motor_net.z
             rhythm_net.step(drive_r)
+            if motor_net is not None:
+                motor_drive = forward_gain * rhythm_net.z
+                motor_net.step(motor_drive)
             rhythm_step += 1
 
         # Snapshot.
@@ -230,6 +247,15 @@ def run(config_path: Path, audio_override: Path | None = None,
             osc.send_layer("pitch", pitch_net.z, pp,
                            pitch_net.last_input_mag,
                            pitch_net.last_residual)
+            if motor_net is not None:
+                mp = motor_net.phantom_mask(
+                    phantom_cfg["amp_thresh"], phantom_cfg["drive_thresh"])
+                state.snapshot(t, "motor", motor_net.z.copy(), mp,
+                               motor_net.last_input_mag,
+                               motor_net.last_residual)
+                osc.send_layer("motor", motor_net.z, mp,
+                               motor_net.last_input_mag,
+                               motor_net.last_residual)
             next_snap += snap_interval
 
         # Hebbian weight snapshot — independent cadence from the state log.
