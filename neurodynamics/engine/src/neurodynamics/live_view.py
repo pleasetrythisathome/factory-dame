@@ -1,30 +1,18 @@
 """Live viewer — subscribes to ``nd-live``'s OSC stream and animates
-the engine state from a rolling ring buffer. Shares aesthetics with
-``viewer.py`` (the offline parquet path) but runs on streaming data
-instead of precomputed arrays.
+the engine state from a rolling ring buffer. Matches the offline
+viewer's diagnostic surface (heatmaps, scopes, coherence strips,
+phantom+residual) with a streaming data source.
 
-Scope deliberately narrower than the offline viewer:
-- Pitch / rhythm / motor heatmaps (scroll right-to-left in real time)
-- Banner with key, chord, BPM, voice count
-- Voice ticks on the pitch right edge
-
-Dropped for live:
-- W matrix panels (the engine doesn't broadcast W; requires either
-  OSC extension or a side channel)
-- Mode-lock constellation overlay (needs phase history across the
-  window, computable but not in v1)
-- Phase coherence / phantom+residual strips (not critical for
-  sanity-check use)
-
-The live viewer is for confirming the live engine sees what you
-think it sees before routing CV to a modular — it doesn't need the
-offline viewer's full diagnostic surface.
+Shares helpers with ``viewer.py`` so the aesthetics, rendering math
+and scope behavior stay identical — only the data source differs
+(OSC → ring buffer vs. parquet → preloaded arrays).
 """
 
 from __future__ import annotations
 
 import argparse
 import threading
+import time
 import tomllib
 from pathlib import Path
 
@@ -44,194 +32,179 @@ from pythonosc.dispatcher import Dispatcher                        # noqa: E402
 from pythonosc.osc_server import ThreadingOSCUDPServer             # noqa: E402
 
 from .viewer import (
-    _CMAP_PITCH, _CMAP_RHYTHM,
-    _GHOST_INK, _INK, _INK_SOFT, _PAPER, _RULE,
-    _VOICE_PALETTE,
+    WATERFALL_N,
+    _CMAP_COHERENCE, _CMAP_PITCH, _CMAP_RHYTHM,
+    _INK, _INK_SOFT, _PAPER, _PHANTOM_INK, _PITCH_INK,
+    _RESIDUAL_INK, _RHYTHM_INK, _VOICE_PALETTE,
+    _composite, _make_scope_trace, _rolling_coherence,
+    _update_scope_trace,
 )
 
 WINDOW_S = 12.0
 
 
 class LiveStateBuffer:
-    """Thread-safe rolling buffer of engine state — OSC handlers push
-    new snapshots, animation reads the most-recent window.
+    """Thread-safe rolling buffer. OSC handlers push, animation reads.
 
-    Layout: ring buffer of depth ``buf_depth`` × ``n_osc`` for each
-    layer. ``write_idx`` points at the next slot to overwrite.
-    Reading assembles a contiguous view of the last ``window_depth``
-    samples by unwrapping the ring.
+    Carries per-layer amp, phase, phantom, drive, residual at snapshot
+    granularity. Ring buffer depth is 1.5× the displayed window so the
+    animation never starves if the render thread lags a frame.
     """
 
     def __init__(self, n_pitch: int, n_rhythm: int, n_motor: int,
                  snap_hz: int, window_s: float = WINDOW_S):
         self.snap_hz = snap_hz
         self.window_s = window_s
-        # 1.5× the displayed window so we have headroom even if the
-        # animation is slightly behind.
         self.buf_depth = max(16, int(snap_hz * window_s * 1.5))
         self.n_pitch = n_pitch
         self.n_rhythm = n_rhythm
         self.n_motor = n_motor
-        self.pamp = np.zeros((self.buf_depth, n_pitch), dtype=np.float32)
-        self.pph = np.zeros((self.buf_depth, n_pitch), dtype=np.float32)
-        self.ramp = np.zeros((self.buf_depth, n_rhythm), dtype=np.float32)
-        self.rph = np.zeros((self.buf_depth, n_rhythm), dtype=np.float32)
-        self.mamp = (np.zeros((self.buf_depth, n_motor), dtype=np.float32)
-                     if n_motor else None)
-        self.mph = (np.zeros((self.buf_depth, n_motor), dtype=np.float32)
-                     if n_motor else None)
+        # Per-layer arrays, all (buf_depth, n_osc) at float32.
+        def _buf(n): return np.zeros((self.buf_depth, n), dtype=np.float32)
+        self.pamp = _buf(n_pitch)
+        self.pph = _buf(n_pitch)
+        self.pphan = _buf(n_pitch)
+        self.pdrv = _buf(n_pitch)
+        self.pres = _buf(n_pitch)
+        self.ramp = _buf(n_rhythm)
+        self.rph = _buf(n_rhythm)
+        self.rphan = _buf(n_rhythm)
+        self.rdrv = _buf(n_rhythm)
+        self.rres = _buf(n_rhythm)
+        if n_motor:
+            self.mamp = _buf(n_motor)
+            self.mph = _buf(n_motor)
+        else:
+            self.mamp = None
+            self.mph = None
         self._write_idx = 0
         self._samples_written = 0
         self._lock = threading.Lock()
-
-        # Latest feature dict + voices — updated on /features/*, /voice/*
+        # Per-layer scratch: receive per-field OSC messages out of
+        # order, flush when /pitch/residual lands (last message in
+        # the engine's layer broadcast).
+        self._scratch: dict = {
+            "pitch": {}, "rhythm": {}, "motor": {},
+        }
         self.features: dict = {}
         self.voices: list[dict] = []
 
-    def push_pitch(self, amp: np.ndarray, phase: np.ndarray) -> None:
-        with self._lock:
-            idx = self._write_idx
-            # Ring buffer writes advance only once all four layer
-            # messages for this tick have arrived — simpler: advance
-            # on every push. Mismatch is bounded to ~1 frame.
-            self.pamp[idx] = amp[:self.n_pitch]
-            self.pph[idx] = phase[:self.n_pitch]
+    def _push_frame(self, idx: int, layer: str, fields: dict) -> None:
+        """Commit a fully-accumulated layer snapshot into the ring."""
+        def _set(arr, key, n):
+            if arr is None:
+                return
+            v = fields.get(key)
+            if v is None:
+                return
+            vv = np.asarray(v, dtype=np.float32)
+            if len(vv) < n:
+                vv = np.pad(vv, (0, n - len(vv)))
+            arr[idx] = vv[:n]
+        if layer == "pitch":
+            _set(self.pamp, "amp", self.n_pitch)
+            _set(self.pph, "phase", self.n_pitch)
+            _set(self.pphan, "phantom", self.n_pitch)
+            _set(self.pdrv, "drive", self.n_pitch)
+            _set(self.pres, "residual", self.n_pitch)
+        elif layer == "rhythm":
+            _set(self.ramp, "amp", self.n_rhythm)
+            _set(self.rph, "phase", self.n_rhythm)
+            _set(self.rphan, "phantom", self.n_rhythm)
+            _set(self.rdrv, "drive", self.n_rhythm)
+            _set(self.rres, "residual", self.n_rhythm)
+        elif layer == "motor":
+            if self.mamp is not None:
+                _set(self.mamp, "amp", self.n_motor)
+                _set(self.mph, "phase", self.n_motor)
 
-    def push_rhythm(self, amp: np.ndarray, phase: np.ndarray) -> None:
+    def push_field(self, layer: str, field: str, values) -> None:
+        """OSC handler entry point. Accumulates until a layer's
+        ``residual`` field arrives (engine emits it last per snapshot),
+        then commits the whole layer to the ring."""
         with self._lock:
-            idx = self._write_idx
-            self.ramp[idx] = amp[:self.n_rhythm]
-            self.rph[idx] = phase[:self.n_rhythm]
+            self._scratch[layer][field] = values
+            if field == "residual":
+                idx = self._write_idx
+                self._push_frame(idx, layer, self._scratch[layer])
+                self._scratch[layer] = {}
+                # Advance after the pitch layer since that's the last
+                # fully-populated layer per snapshot (engine emits
+                # pitch last).
+                if layer == "pitch":
+                    self._write_idx = (self._write_idx + 1) % self.buf_depth
+                    self._samples_written += 1
 
-    def push_motor(self, amp: np.ndarray, phase: np.ndarray) -> None:
-        if self.mamp is None:
-            return
+    def latest(self, depth: int) -> dict:
+        """Return a dict of (depth, n_osc) tails for every buffer.
+        Oldest slot first, newest last."""
         with self._lock:
-            idx = self._write_idx
-            self.mamp[idx] = amp[:self.n_motor]
-            self.mph[idx] = phase[:self.n_motor]
+            d = min(depth, self._samples_written, self.buf_depth)
+            if d == 0:
+                return {}
+            start = (self._write_idx - d) % self.buf_depth
 
-    def advance(self) -> None:
-        """Advance the ring-buffer write pointer. Called after a
-        complete snapshot (all layers pushed)."""
-        with self._lock:
-            self._write_idx = (self._write_idx + 1) % self.buf_depth
-            self._samples_written += 1
-
-    def latest_window(self, window_depth: int) -> tuple:
-        """Return the last ``window_depth`` samples of each buffer as
-        a contiguous array. Oldest slot first, newest last."""
-        with self._lock:
-            depth = min(window_depth, self._samples_written, self.buf_depth)
-            if depth == 0:
-                return None, None, None, None, None, None
-            start = (self._write_idx - depth) % self.buf_depth
-            if start + depth <= self.buf_depth:
-                pa = self.pamp[start:start + depth].copy()
-                pp = self.pph[start:start + depth].copy()
-                ra = self.ramp[start:start + depth].copy()
-                rp = self.rph[start:start + depth].copy()
-                ma = (self.mamp[start:start + depth].copy()
-                      if self.mamp is not None else None)
-                mp = (self.mph[start:start + depth].copy()
-                      if self.mph is not None else None)
-            else:
-                # Wraps around the ring end.
+            def _take(arr):
+                if arr is None:
+                    return None
+                if start + d <= self.buf_depth:
+                    return arr[start:start + d].copy()
                 first = self.buf_depth - start
-                pa = np.concatenate([self.pamp[start:], self.pamp[:depth - first]])
-                pp = np.concatenate([self.pph[start:], self.pph[:depth - first]])
-                ra = np.concatenate([self.ramp[start:], self.ramp[:depth - first]])
-                rp = np.concatenate([self.rph[start:], self.rph[:depth - first]])
-                if self.mamp is not None:
-                    ma = np.concatenate([self.mamp[start:],
-                                         self.mamp[:depth - first]])
-                    mp = np.concatenate([self.mph[start:],
-                                         self.mph[:depth - first]])
-                else:
-                    ma, mp = None, None
-            return pa, pp, ra, rp, ma, mp
+                return np.concatenate([arr[start:], arr[:d - first]])
+
+            return {
+                "pamp": _take(self.pamp),
+                "pph": _take(self.pph),
+                "pphan": _take(self.pphan),
+                "pdrv": _take(self.pdrv),
+                "pres": _take(self.pres),
+                "ramp": _take(self.ramp),
+                "rph": _take(self.rph),
+                "rphan": _take(self.rphan),
+                "rdrv": _take(self.rdrv),
+                "rres": _take(self.rres),
+                "mamp": _take(self.mamp),
+                "mph": _take(self.mph),
+            }
 
 
 def _build_server(buffer: LiveStateBuffer, host: str, port: int) -> ThreadingOSCUDPServer:
-    """Wire an OSC server whose handlers populate the ring buffer."""
     dispatcher = Dispatcher()
 
-    pitch_state: dict = {"amp": None, "phase": None}
-    rhythm_state: dict = {"amp": None, "phase": None}
-    motor_state: dict = {"amp": None, "phase": None}
+    def handler(layer: str, field: str):
+        def _h(_addr, *args):
+            buffer.push_field(layer, field, args)
+        return _h
 
-    def _handle_layer(kind, field, *args):
-        vals = np.array(list(args), dtype=np.float32)
-        if kind == "pitch":
-            pitch_state[field] = vals
-            if pitch_state["amp"] is not None and pitch_state["phase"] is not None:
-                buffer.push_pitch(pitch_state["amp"], pitch_state["phase"])
-        elif kind == "rhythm":
-            rhythm_state[field] = vals
-            if rhythm_state["amp"] is not None and rhythm_state["phase"] is not None:
-                buffer.push_rhythm(rhythm_state["amp"], rhythm_state["phase"])
-        elif kind == "motor":
-            motor_state[field] = vals
-            if motor_state["amp"] is not None and motor_state["phase"] is not None:
-                buffer.push_motor(motor_state["amp"], motor_state["phase"])
+    for layer in ("pitch", "rhythm", "motor"):
+        for field in ("amp", "phase", "phantom", "drive", "residual"):
+            dispatcher.map(f"/{layer}/{field}", handler(layer, field))
 
-    def _on_pitch_amp(_addr, *args):
-        _handle_layer("pitch", "amp", *args)
-    def _on_pitch_phase(_addr, *args):
-        _handle_layer("pitch", "phase", *args)
-    def _on_rhythm_amp(_addr, *args):
-        _handle_layer("rhythm", "amp", *args)
-    def _on_rhythm_phase(_addr, *args):
-        _handle_layer("rhythm", "phase", *args)
-    def _on_motor_amp(_addr, *args):
-        _handle_layer("motor", "amp", *args)
-    def _on_motor_phase(_addr, *args):
-        _handle_layer("motor", "phase", *args)
-
-    def _on_features_tempo(_addr, *args):
+    def _on_tempo(_addr, *args):
         if args:
             buffer.features["tempo"] = float(args[0])
-    def _on_features_key(_addr, *args):
+    def _on_key(_addr, *args):
         if args:
             buffer.features["tonic"] = str(args[0])
-    def _on_features_mode(_addr, *args):
+    def _on_mode(_addr, *args):
         if args:
             buffer.features["mode"] = str(args[0])
-    def _on_features_chord(_addr, *args):
+    def _on_chord(_addr, *args):
         if args:
             buffer.features["chord"] = str(args[0])
-    def _on_features_consonance(_addr, *args):
+    def _on_consonance(_addr, *args):
         if args:
             buffer.features["consonance"] = float(args[0])
-
     def _on_voice_count(_addr, *args):
         if args:
             buffer.features["voice_count"] = int(args[0])
 
-    # The /pitch/phase message arriving last (after /pitch/amp) is
-    # the natural trigger to advance the write pointer.
-    def _on_layer_residual(_addr, *args):
-        # After all three layers have emitted their residual (last
-        # message in send_layer), advance the ring buffer. We key on
-        # pitch residual specifically since it's emitted last by
-        # nd-live's snapshot block for the pitch layer.
-        buffer.advance()
-
-    dispatcher.map("/pitch/amp", _on_pitch_amp)
-    dispatcher.map("/pitch/phase", _on_pitch_phase)
-    dispatcher.map("/rhythm/amp", _on_rhythm_amp)
-    dispatcher.map("/rhythm/phase", _on_rhythm_phase)
-    dispatcher.map("/motor/amp", _on_motor_amp)
-    dispatcher.map("/motor/phase", _on_motor_phase)
-    dispatcher.map("/features/tempo", _on_features_tempo)
-    dispatcher.map("/features/key", _on_features_key)
-    dispatcher.map("/features/mode", _on_features_mode)
-    dispatcher.map("/features/chord", _on_features_chord)
-    dispatcher.map("/features/consonance", _on_features_consonance)
+    dispatcher.map("/features/tempo", _on_tempo)
+    dispatcher.map("/features/key", _on_key)
+    dispatcher.map("/features/mode", _on_mode)
+    dispatcher.map("/features/chord", _on_chord)
+    dispatcher.map("/features/consonance", _on_consonance)
     dispatcher.map("/voice/active_count", _on_voice_count)
-    # Simpler advance rule: advance whenever /pitch/residual fires
-    # (it's the last pitch-layer message nd-live sends per snapshot).
-    dispatcher.map("/pitch/residual", _on_layer_residual)
 
     return ThreadingOSCUDPServer((host, port), dispatcher)
 
@@ -256,8 +229,6 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
 
     buffer = LiveStateBuffer(len(pf), len(rf), len(mf), snap_hz)
 
-    # Default viewer port: the second endpoint in [osc.endpoints]
-    # if one is configured, else fall back to the primary osc.port.
     osc_cfg = cfg.get("osc", {})
     host = osc_cfg.get("host", "127.0.0.1")
     default_port = 57121
@@ -275,30 +246,38 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
 
     window_depth = int(snap_hz * WINDOW_S)
 
-    fig = plt.figure(figsize=(14, 10), constrained_layout=True,
-                     facecolor=_PAPER)
-    rows = [1.0, 3, 3]
+    # ── Figure layout (matches offline viewer) ────────────────────
+    row_h = [1.0, 3, 3, 3, 2, 1]  # banner, pitch heat, rhythm heat, scopes, phase, phantom
     if motor_enabled:
-        rows.append(2)
-    gs = GridSpec(len(rows), 1, figure=fig, height_ratios=rows)
-    ax_banner = fig.add_subplot(gs[0])
-    ax_banner.set_axis_off()
-    ax_p = fig.add_subplot(gs[1])
-    ax_r = fig.add_subplot(gs[2])
-    ax_m = fig.add_subplot(gs[3]) if motor_enabled else None
+        row_h.append(2)
+    fig = plt.figure(figsize=(14, 13 + (2 if motor_enabled else 0)),
+                      constrained_layout=True, facecolor=_PAPER)
+    gs = GridSpec(len(row_h), 2, figure=fig, height_ratios=row_h,
+                   width_ratios=[len(pf), len(rf)])
+    ax_banner = fig.add_subplot(gs[0, :]); ax_banner.set_axis_off()
+    ax_p = fig.add_subplot(gs[1, :])
+    ax_r = fig.add_subplot(gs[2, :])
+    ax_sp = fig.add_subplot(gs[3, 0])   # pitch scope
+    ax_sr = fig.add_subplot(gs[3, 1])   # rhythm scope
+    ax_psp = fig.add_subplot(gs[4, 0])  # pitch coherence
+    ax_prs = fig.add_subplot(gs[4, 1])  # rhythm coherence
+    ax_php = fig.add_subplot(gs[5, 0])  # pitch phantom+residual
+    ax_phr = fig.add_subplot(gs[5, 1])  # rhythm phantom+residual
+    ax_m = fig.add_subplot(gs[6, :]) if motor_enabled else None
 
+    # Banner
     ax_banner.text(
         0.5, 0.85, "NEURAL RESONANCE  ·  LIVE",
-        transform=ax_banner.transAxes,
-        ha="center", va="top", color=_INK, fontsize=12,
+        transform=ax_banner.transAxes, ha="center", va="top",
+        color=_INK, fontsize=12,
     )
     features_text = ax_banner.text(
         0.5, 0.25, "(waiting for nd-live …)",
-        transform=ax_banner.transAxes,
-        ha="center", va="center", color=_INK, fontsize=14,
-        animated=True,
+        transform=ax_banner.transAxes, ha="center", va="center",
+        color=_INK, fontsize=14, animated=True,
     )
 
+    # Pitch heatmap
     init_p = np.zeros((len(pf), window_depth), dtype=np.float32)
     im_p = ax_p.imshow(
         init_p, aspect="auto", origin="lower",
@@ -306,13 +285,15 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         cmap=_CMAP_PITCH, norm=PowerNorm(gamma=0.35, vmin=0, vmax=0.2),
         interpolation="nearest",
     )
-    ax_p.set_title(f"PITCH  ·  {len(pf)} oscillators")
+    ax_p.set_title(f"PITCH  ·  {len(pf)} oscillators  ·  "
+                   f"{pf[0]:.0f}–{pf[-1]:.0f} Hz")
     ax_p.set_ylabel("freq")
     p_ticks = np.linspace(0, len(pf) - 1, 6).astype(int)
     ax_p.set_yticks(p_ticks)
     ax_p.set_yticklabels([f"{pf[i]:.0f}" for i in p_ticks])
     ax_p.axvline(0, color=_INK, linewidth=2.0)
 
+    # Rhythm heatmap
     init_r = np.zeros((len(rf), window_depth), dtype=np.float32)
     im_r = ax_r.imshow(
         init_r, aspect="auto", origin="lower",
@@ -320,7 +301,8 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         cmap=_CMAP_RHYTHM, norm=PowerNorm(gamma=0.6, vmin=0, vmax=0.8),
         interpolation="nearest",
     )
-    ax_r.set_title(f"RHYTHM  ·  {len(rf)} oscillators  ·  {rf[0]:.2f}-{rf[-1]:.2f} Hz")
+    ax_r.set_title(f"RHYTHM  ·  {len(rf)} oscillators  ·  "
+                    f"{rf[0]:.2f}–{rf[-1]:.2f} Hz")
     ax_r.set_ylabel("freq")
     r_ticks = np.linspace(0, len(rf) - 1, 6).astype(int)
     ax_r.set_yticks(r_ticks)
@@ -328,53 +310,163 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
     ax_r.set_xlabel("seconds ago  ·  live")
     ax_r.axvline(0, color=_INK, linewidth=2.0)
 
+    # Scope traces — oscilloscope-style amplitude profiles
+    scope_p = _make_scope_trace(
+        ax_sp, n_osc=len(pf), n_history=WATERFALL_N,
+        max_amp=0.2, ink_color=_PITCH_INK,
+    )
+    scope_r = _make_scope_trace(
+        ax_sr, n_osc=len(rf), n_history=WATERFALL_N,
+        max_amp=0.8, ink_color=_RHYTHM_INK,
+    )
+    ax_sp.set_title(f"PITCH PROFILE  ·  last {WATERFALL_N / snap_hz:.2f}s")
+    ax_sr.set_title(f"RHYTHM PROFILE  ·  last {WATERFALL_N / snap_hz:.2f}s")
+
+    # Coherence strips
+    init_psp = np.zeros((WATERFALL_N, len(pf)), dtype=np.float32)
+    init_prs = np.zeros((WATERFALL_N, len(rf)), dtype=np.float32)
+    im_psp = ax_psp.imshow(
+        init_psp.T, aspect="auto", origin="lower",
+        cmap=_CMAP_COHERENCE,
+        norm=Normalize(vmin=0, vmax=1),
+        interpolation="nearest",
+    )
+    ax_psp.set_title(f"PITCH COHERENCE  ·  phase stability over "
+                      f"{WATERFALL_N / snap_hz:.2f}s")
+    ax_psp.set_yticks([])
+    ax_psp.set_xticks([])
+    im_prs = ax_prs.imshow(
+        init_prs.T, aspect="auto", origin="lower",
+        cmap=_CMAP_COHERENCE,
+        norm=Normalize(vmin=0, vmax=1),
+        interpolation="nearest",
+    )
+    ax_prs.set_title(f"RHYTHM COHERENCE  ·  phase stability over "
+                      f"{WATERFALL_N / snap_hz:.2f}s")
+    ax_prs.set_yticks([])
+    ax_prs.set_xticks([])
+
+    # Phantom + residual composite
+    init_php = np.zeros((WATERFALL_N, len(pf), 3), dtype=np.float32)
+    init_phr = np.zeros((WATERFALL_N, len(rf), 3), dtype=np.float32)
+    im_php = ax_php.imshow(
+        np.swapaxes(init_php, 0, 1),
+        aspect="auto", origin="lower", interpolation="nearest",
+    )
+    ax_php.set_title("PITCH  ·  rose = phantom (inner voice)  ·  red flash = surprise")
+    ax_php.set_yticks([])
+    ax_php.set_xticks([])
+    im_phr = ax_phr.imshow(
+        np.swapaxes(init_phr, 0, 1),
+        aspect="auto", origin="lower", interpolation="nearest",
+    )
+    ax_phr.set_title("RHYTHM  ·  same encoding")
+    ax_phr.set_yticks([])
+    ax_phr.set_xticks([])
+
+    # Motor heatmap
     im_m = None
     if ax_m is not None:
         init_m = np.zeros((len(mf), window_depth), dtype=np.float32)
         im_m = ax_m.imshow(
             init_m, aspect="auto", origin="lower",
             extent=(-WINDOW_S, 0.0, 0, len(mf)),
-            cmap=_CMAP_RHYTHM,
-            norm=Normalize(vmin=0.0, vmax=0.5),
+            cmap=_CMAP_RHYTHM, norm=Normalize(vmin=0.0, vmax=0.5),
             interpolation="nearest",
         )
-        ax_m.set_title(f"MOTOR  ·  {len(mf)} oscillators")
+        ax_m.set_title(f"MOTOR  ·  {len(mf)} oscillators  ·  "
+                       f"{mf[0]:.2f}–{mf[-1]:.2f} Hz")
         ax_m.set_ylabel("freq")
-        m_ticks = np.linspace(0, len(mf) - 1, 6).astype(int)
-        ax_m.set_yticks(m_ticks)
-        ax_m.set_yticklabels([f"{mf[i]:.2f}" for i in m_ticks])
         ax_m.axvline(0, color=_INK, linewidth=2.0)
 
+    # Voice ticks on the pitch heatmap
     voice_lines_p = LineCollection([], colors=[], linewidths=4.5,
                                     alpha=0.95, zorder=6, capstyle="butt")
     ax_p.add_collection(voice_lines_p)
 
+    # Residual vmax for composite — kept small so short bursts flash.
+    pres_vmax = 0.1
+    rres_vmax = 0.1
+
     def update(_frame):
-        pa, _pp, ra, _rp, ma, _mp = buffer.latest_window(window_depth)
-        if pa is None:
+        snap = buffer.latest(window_depth)
+        if not snap:
             features_text.set_text("(waiting for nd-live …)")
-            return (features_text, im_p, im_r, voice_lines_p) + (
-                (im_m,) if im_m is not None else ())
+            artists = [features_text, im_p, im_r,
+                       scope_p["current"], *scope_p["history"], scope_p["fill"],
+                       scope_r["current"], *scope_r["history"], scope_r["fill"],
+                       im_psp, im_prs, im_php, im_phr, voice_lines_p]
+            if im_m is not None:
+                artists.append(im_m)
+            return tuple(artists)
+
         # Pad left with zeros if we haven't filled the window yet.
-        if pa.shape[0] < window_depth:
-            pad = window_depth - pa.shape[0]
-            pa = np.concatenate([np.zeros((pad, pa.shape[1]), dtype=np.float32), pa])
-            ra = np.concatenate([np.zeros((pad, ra.shape[1]), dtype=np.float32), ra])
-            if ma is not None:
-                ma = np.concatenate([np.zeros((pad, ma.shape[1]), dtype=np.float32), ma])
-        # imshow expects (n_osc, time)
+        def _pad(arr, depth):
+            if arr is None:
+                return None
+            if arr.shape[0] < depth:
+                pad = depth - arr.shape[0]
+                return np.concatenate([np.zeros((pad, arr.shape[1]),
+                                                dtype=arr.dtype), arr])
+            return arr
+
+        pa = _pad(snap["pamp"], window_depth)
+        ra = _pad(snap["ramp"], window_depth)
+        ma = _pad(snap["mamp"], window_depth) if snap.get("mamp") is not None else None
+
         im_p.set_data(pa.T)
-        # Rescale pitch vmax to keep detail visible as activity shifts.
-        p_vmax = max(np.percentile(pa, 80), 0.05)
-        im_p.set_clim(vmin=0, vmax=p_vmax)
+        im_p.set_clim(vmin=0, vmax=max(np.percentile(pa, 80), 0.05))
         im_r.set_data(ra.T)
-        r_vmax = max(np.percentile(ra, 90), 0.05)
-        im_r.set_clim(vmin=0, vmax=r_vmax)
+        im_r.set_clim(vmin=0, vmax=max(np.percentile(ra, 90), 0.05))
         if im_m is not None and ma is not None:
             im_m.set_data(ma.T)
             m_vmin = np.percentile(ma, 5)
             m_vmax = max(np.percentile(ma, 99), m_vmin + 1e-3)
             im_m.set_clim(vmin=m_vmin, vmax=m_vmax)
+
+        # Scopes — last WATERFALL_N samples.
+        depth = min(WATERFALL_N, snap["pamp"].shape[0])
+        if depth > 0:
+            p_tail = np.zeros((WATERFALL_N, len(pf)), dtype=np.float32)
+            r_tail = np.zeros((WATERFALL_N, len(rf)), dtype=np.float32)
+            p_tail[-depth:] = snap["pamp"][-depth:]
+            r_tail[-depth:] = snap["ramp"][-depth:]
+            _update_scope_trace(scope_p, p_tail)
+            _update_scope_trace(scope_r, r_tail)
+            # Refresh max-amp limits so strong sections aren't clipped.
+            scope_p["ax"].set_ylim(0, max(np.max(p_tail) * 1.2, 0.05))
+            scope_r["ax"].set_ylim(0, max(np.max(r_tail) * 1.2, 0.1))
+
+        # Coherence strips — over the scope window.
+        if depth >= 4:
+            pcoh = _rolling_coherence(
+                snap["pph"][-depth:].astype(np.float32), window=min(12, depth),
+            )
+            rcoh = _rolling_coherence(
+                snap["rph"][-depth:].astype(np.float32), window=min(12, depth),
+            )
+            pcoh_padded = np.zeros((WATERFALL_N, len(pf)), dtype=np.float32)
+            rcoh_padded = np.zeros((WATERFALL_N, len(rf)), dtype=np.float32)
+            pcoh_padded[-depth:] = pcoh
+            rcoh_padded[-depth:] = rcoh
+            im_psp.set_data(pcoh_padded.T)
+            im_prs.set_data(rcoh_padded.T)
+
+        # Phantom + residual composite.
+        if depth > 0:
+            pph_tail = np.zeros((WATERFALL_N, len(pf)), dtype=np.float32)
+            pres_tail = np.zeros((WATERFALL_N, len(pf)), dtype=np.float32)
+            rph_tail = np.zeros((WATERFALL_N, len(rf)), dtype=np.float32)
+            rres_tail = np.zeros((WATERFALL_N, len(rf)), dtype=np.float32)
+            pph_tail[-depth:] = snap["pphan"][-depth:]
+            pres_tail[-depth:] = snap["pres"][-depth:]
+            rph_tail[-depth:] = snap["rphan"][-depth:]
+            rres_tail[-depth:] = snap["rres"][-depth:]
+            comp_p = _composite(pph_tail, pres_tail, pres_vmax)
+            comp_r = _composite(rph_tail, rres_tail, rres_vmax)
+            im_php.set_data(np.swapaxes(comp_p, 0, 1))
+            im_phr.set_data(np.swapaxes(comp_r, 0, 1))
+
         # Banner
         f = buffer.features
         tonic = f.get("tonic", "—")
@@ -387,17 +479,19 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
             f"{tonic} {mode} · {chord} · {bpm:.0f} BPM · "
             f"CONSONANCE {conson:.2f} · VOICES {voices}"
         )
-        artists = [features_text, im_p, im_r, voice_lines_p]
+
+        artists = [features_text, im_p, im_r,
+                   scope_p["current"], *scope_p["history"], scope_p["fill"],
+                   scope_r["current"], *scope_r["history"], scope_r["fill"],
+                   im_psp, im_prs, im_php, im_phr, voice_lines_p]
         if im_m is not None:
             artists.append(im_m)
         return tuple(artists)
 
-    # Scrollable Tk canvas so the figure doesn't get clipped when the
-    # window is shorter than the stacked panels. Same pattern as the
-    # offline viewer.
+    # Scrollable Tk canvas so the tall panel stack fits any window.
     root = tk.Tk()
     root.title("nd-view-live")
-    root.geometry("1200x800")
+    root.geometry("1200x900")
     root.configure(bg=_PAPER)
 
     outer = tk.Frame(root, bg=_PAPER)
@@ -409,10 +503,8 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
     scroll_canvas.configure(yscrollcommand=vscroll.set)
     vscroll.pack(side="right", fill="y")
     scroll_canvas.pack(side="left", fill="both", expand=True)
-
     inner = tk.Frame(scroll_canvas, bg=_PAPER)
     inner_id = scroll_canvas.create_window((0, 0), window=inner, anchor="nw")
-
     fig_canvas = FigureCanvasTkAgg(fig, master=inner)
     fig_canvas.draw()
     fig_canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -426,7 +518,6 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
     inner.bind("<Configure>", on_inner_configure)
     scroll_canvas.bind("<Configure>", on_scroll_configure)
 
-    # Mouse wheel / trackpad scrolling — macOS + Linux + Windows.
     def on_mousewheel(event):
         if abs(event.delta) >= 120:
             step = -int(event.delta / 120)
@@ -464,7 +555,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", type=Path, default=Path("config.toml"))
     ap.add_argument("--port", type=int, default=None,
-                    help="OSC port (overrides config osc.port)")
+                    help="OSC port (overrides the first configured endpoint)")
     args = ap.parse_args()
     run_live(args.config, osc_port=args.port)
 
