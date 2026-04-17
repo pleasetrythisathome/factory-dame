@@ -1263,7 +1263,18 @@ def main() -> None:
                     help="Render a single frame at this time (sec) and exit.")
     ap.add_argument("--screenshot-path", type=Path, default=None,
                     help="Where to save the screenshot PNG.")
+    ap.add_argument("--live", action="store_true",
+                    help="Run the live viewer (subscribe to nd-live's OSC "
+                         "stream) instead of loading a parquet.")
+    ap.add_argument("--port", type=int, default=None,
+                    help="OSC port for --live (defaults to config osc.port).")
     args = ap.parse_args()
+    if args.live:
+        # Lazy import so the offline path isn't affected by live-viewer
+        # module-level side effects.
+        from .live_view import run_live
+        run_live(args.config, osc_port=args.port)
+        return
     run(args.config, audio_override=args.audio, state_override=args.state,
         screenshot_at=args.screenshot_at,
         screenshot_path=args.screenshot_path)
