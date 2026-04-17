@@ -1,9 +1,10 @@
 ---
 id: task-005
 title: Live audio mode (nd-live)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-16 17:52'
+updated_date: '2026-04-17 03:06'
 labels:
   - engine
   - live
@@ -37,3 +38,9 @@ Key risk: matplotlib TkAgg is single-threaded. The audio callback runs on a sepa
 - [ ] #4 No audio dropouts on a modest laptop
 - [ ] #5 Tests: can instantiate + stop without hanging; offline parity test ensures streaming same audio matches file processing within tolerance
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed 2026-04-17 via nd-live in commits a656245 (numba JIT making the engine faster than realtime) and 2514135 (LiveEngine + sounddevice callback + snapshot-aware chunked processing). Hardware verification (ES-9 + live input) is the operator's side.
+<!-- SECTION:NOTES:END -->
