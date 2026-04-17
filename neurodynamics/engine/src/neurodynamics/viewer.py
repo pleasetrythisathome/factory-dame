@@ -129,6 +129,7 @@ from .run import _NATIVE_EXTS, state_path_for
 from .voices import (
     VoiceClusteringConfig,
     VoiceState,
+    extract_voice_motor,
     extract_voice_rhythms,
     extract_voices,
 )
@@ -928,11 +929,17 @@ def run(config_path: Path, audio_override: Path | None = None,
     voice_cfg = VoiceClusteringConfig()
     voice_state = VoiceState()
     voices_per_step: list[list[dict]] = []
+    motor_z_complex = None
+    if has_motor:
+        motor_z_complex = (mamp.astype(np.complex128)
+                            * np.exp(1j * mpha.astype(np.complex128)))
     for i in feat_indices:
         lo = max(0, i - voice_half)
         hi = min(n_snap, i + voice_half + 1)
         pitch_z_vox = (pamp[lo:hi].astype(np.complex128)
                        * np.exp(1j * pph[lo:hi].astype(np.complex128)))
+        motor_slice = (motor_z_complex[lo:hi]
+                       if motor_z_complex is not None else None)
         sw = StateWindow(
             pitch_z=pitch_z_vox,
             pitch_freqs=pf,
@@ -940,6 +947,8 @@ def run(config_path: Path, audio_override: Path | None = None,
             rhythm_freqs=rf,
             frame_hz=float(snap_hz),
             w_pitch=pW_final,
+            motor_z=motor_slice,
+            motor_freqs=mf if has_motor else None,
         )
         voice_state = extract_voices(sw, prev_state=voice_state,
                                       config=voice_cfg)
@@ -947,6 +956,10 @@ def run(config_path: Path, audio_override: Path | None = None,
         # against the rhythm oscillator bank; each voice gets its own
         # tempo, phase, and clock-rate oscillator index.
         voice_state = extract_voice_rhythms(sw, voice_state)
+        # Phase 3 — per-voice motor coupling (skipped when the
+        # parquet lacks a motor layer). Same DFT against the motor
+        # bank → anticipated-beat phase per voice.
+        voice_state = extract_voice_motor(sw, voice_state)
         # Store lightweight per-frame snapshot for rendering/CSV.
         frame_voices = []
         for v in voice_state.active_voices:
@@ -968,6 +981,14 @@ def run(config_path: Path, audio_override: Path | None = None,
                                 if v.rhythm is not None else None),
                 "rhythm_confidence": (float(v.rhythm.confidence)
                                        if v.rhythm is not None else None),
+                "motor_bpm": (float(v.motor.bpm)
+                               if v.motor is not None else None),
+                "motor_phase": (float(v.motor.phase)
+                                 if v.motor is not None else None),
+                "motor_freq": (float(v.motor.freq)
+                                if v.motor is not None else None),
+                "motor_confidence": (float(v.motor.confidence)
+                                      if v.motor is not None else None),
             })
         voices_per_step.append(frame_voices)
     print(f"  precomputed in {time.monotonic() - t_vox_start:.1f}s "
@@ -1127,13 +1148,17 @@ def run(config_path: Path, audio_override: Path | None = None,
         with open(csv_path, "w") as f:
             f.write("t,tonic,mode,chord,bpm,peak_phase,peak_freq,"
                     "n_companions,consonance,n_voices,voice_ids,"
-                    "voice_bpms\n")
+                    "voice_rhythm_bpms,voice_motor_bpms\n")
             for i, feat in enumerate(features_per_step):
                 t = i / features_hz_effective
                 voices = voices_per_step[i]
                 ids = "+".join(str(v["id"]) for v in voices) or "-"
-                voice_bpms = "+".join(
+                rhythm_bpms = "+".join(
                     f"{v['rhythm_bpm']:.0f}" if v.get("rhythm_bpm") else "?"
+                    for v in voices
+                ) or "-"
+                motor_bpms = "+".join(
+                    f"{v['motor_bpm']:.0f}" if v.get("motor_bpm") else "?"
                     for v in voices
                 ) or "-"
                 f.write(
@@ -1142,7 +1167,7 @@ def run(config_path: Path, audio_override: Path | None = None,
                     f"{feat['tempo']:.3f},{feat['peak_phase']:.4f},"
                     f"{feat['peak_freq']:.4f},{feat['n_companions']},"
                     f"{feat['consonance']:.4f},"
-                    f"{len(voices)},{ids},{voice_bpms}\n"
+                    f"{len(voices)},{ids},{rhythm_bpms},{motor_bpms}\n"
                 )
         print(f"Dumped features to {csv_path}")
         return

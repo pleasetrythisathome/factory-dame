@@ -33,6 +33,7 @@ from .state_log import StateLog
 from .voices import (
     VoiceClusteringConfig,
     VoiceState,
+    extract_voice_motor,
     extract_voice_rhythms,
     extract_voices,
 )
@@ -213,6 +214,12 @@ def run(config_path: Path, audio_override: Path | None = None,
         "prev_peak_idx": None,
         "voice_state": VoiceState(),
         "pitch_buf": deque(maxlen=voice_buf_len),
+        # Motor buffer mirrors the pitch buffer so per-voice motor
+        # coupling (Phase 3) has the same 2.5 s window of motor state
+        # to DFT the voice envelope against. Only accumulated when
+        # the motor layer is enabled.
+        "motor_buf": (deque(maxlen=voice_buf_len)
+                       if motor_net is not None else None),
         "voice_stride": max(1, int(snap_hz / 20)),  # emit voices at ~20 Hz
         "snap_count": 0,
     }
@@ -320,10 +327,19 @@ def run(config_path: Path, audio_override: Path | None = None,
             # has history to work with. Emitted at 1/voice_stride the
             # snapshot rate — 20 Hz is plenty for modular consumers.
             osc_state["pitch_buf"].append(pitch_net.z.copy())
+            if osc_state["motor_buf"] is not None and motor_net is not None:
+                osc_state["motor_buf"].append(motor_net.z.copy())
             osc_state["snap_count"] += 1
             if (osc_state["snap_count"] % osc_state["voice_stride"] == 0
                     and len(osc_state["pitch_buf"]) >= 8):
                 pitch_hist = np.stack(list(osc_state["pitch_buf"]))
+                motor_hist = None
+                motor_freqs = None
+                if (osc_state["motor_buf"] is not None
+                        and motor_net is not None
+                        and len(osc_state["motor_buf"]) >= 8):
+                    motor_hist = np.stack(list(osc_state["motor_buf"]))
+                    motor_freqs = motor_net.f
                 voice_sw = StateWindow(
                     pitch_z=pitch_hist,
                     pitch_freqs=pitch_net.f,
@@ -331,15 +347,19 @@ def run(config_path: Path, audio_override: Path | None = None,
                     rhythm_freqs=rhythm_net.f,
                     frame_hz=float(snap_hz),
                     w_pitch=pitch_net.W,
+                    motor_z=motor_hist,
+                    motor_freqs=motor_freqs,
                 )
                 voice_state = extract_voices(
                     voice_sw,
                     prev_state=osc_state["voice_state"],
                     config=voice_cfg,
                 )
-                # Phase 2 — per-voice rhythm association. Reads from
-                # the same rolling pitch buffer + current rhythm state.
+                # Phase 2 — per-voice rhythm association.
                 voice_state = extract_voice_rhythms(voice_sw, voice_state)
+                # Phase 3 — per-voice motor coupling. No-op when the
+                # motor layer is disabled.
+                voice_state = extract_voice_motor(voice_sw, voice_state)
                 osc_state["voice_state"] = voice_state
                 osc.send_voices(voice_state)
 

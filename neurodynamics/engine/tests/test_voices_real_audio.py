@@ -32,6 +32,7 @@ from neurodynamics.perceptual import StateWindow
 from neurodynamics.voices import (
     VoiceClusteringConfig,
     VoiceState,
+    extract_voice_motor,
     extract_voice_rhythms,
     extract_voices,
 )
@@ -80,23 +81,45 @@ def _load_rhythm_layer(parquet_path: Path):
     return times, amps, phases, freqs
 
 
+def _load_motor_layer(parquet_path: Path):
+    """Return (times, amps, phases, freqs) for the motor layer, or
+    (None, None, None, None) when the parquet has no motor layer."""
+    t = pq.read_table(parquet_path)
+    layer_col = t.column("layer").to_pylist()
+    if "motor" not in set(layer_col):
+        return None, None, None, None
+    mask = [x == "motor" for x in layer_col]
+    motor = t.filter(mask)
+    times = np.array(motor.column("t").to_pylist(), dtype=np.float64)
+    amps = np.array(motor.column("amp").to_pylist(), dtype=np.float32)
+    phases = np.array(motor.column("phase").to_pylist(), dtype=np.float32)
+    meta = t.schema.metadata or {}
+    freq_str = meta.get(b"layer.motor.f", b"").decode()
+    freqs = np.array([float(x) for x in freq_str.split(",") if x])
+    return times, amps, phases, freqs
+
+
 def _extract_voices_over_track(
     parquet_path: Path,
     *,
     window_seconds: float = 2.5,
     feature_hz: float = 5.0,
 ) -> list[list[dict]]:
-    """Run extract_voices + extract_voice_rhythms over every feature
-    frame in a parquet and return per-frame voice snapshots."""
+    """Run extract_voices + extract_voice_rhythms + extract_voice_motor
+    over every feature frame in a parquet and return per-frame voice
+    snapshots including rhythm + motor fields when available."""
     p_times, p_amps, p_phases, p_freqs = _load_pitch_layer(parquet_path)
     r_times, r_amps, r_phases, r_freqs = _load_rhythm_layer(parquet_path)
+    m_times, m_amps, m_phases, m_freqs = _load_motor_layer(parquet_path)
     if len(p_times) < 2:
         return []
-    # Align pitch and rhythm time series. If they have different
-    # lengths (they usually don't), use whichever is shorter.
     n = min(len(p_times), len(r_times))
+    if m_times is not None:
+        n = min(n, len(m_times))
     p_amps, p_phases = p_amps[:n], p_phases[:n]
     r_amps, r_phases = r_amps[:n], r_phases[:n]
+    if m_times is not None:
+        m_amps, m_phases = m_amps[:n], m_phases[:n]
     snap_hz = 1.0 / (p_times[1] - p_times[0]) if len(p_times) > 1 else 60.0
     feat_stride = max(1, int(round(snap_hz / feature_hz)))
     feat_half = max(1, int(snap_hz * window_seconds / 2))
@@ -109,15 +132,22 @@ def _extract_voices_over_track(
                    * np.exp(1j * p_phases[lo:hi].astype(np.complex128)))
         rhythm_z = (r_amps[lo:hi].astype(np.complex128)
                     * np.exp(1j * r_phases[lo:hi].astype(np.complex128)))
+        motor_z = None
+        if m_times is not None:
+            motor_z = (m_amps[lo:hi].astype(np.complex128)
+                       * np.exp(1j * m_phases[lo:hi].astype(np.complex128)))
         sw = StateWindow(
             pitch_z=pitch_z,
             pitch_freqs=p_freqs,
             rhythm_z=rhythm_z,
             rhythm_freqs=r_freqs,
             frame_hz=float(snap_hz),
+            motor_z=motor_z,
+            motor_freqs=m_freqs if m_times is not None else None,
         )
         voice_state = extract_voices(sw, prev_state=voice_state)
         voice_state = extract_voice_rhythms(sw, voice_state)
+        voice_state = extract_voice_motor(sw, voice_state)
         voices_per_step.append([
             {
                 "id": int(v.id),
@@ -129,6 +159,12 @@ def _extract_voices_over_track(
                                if v.rhythm is not None else None),
                 "rhythm_confidence": (float(v.rhythm.confidence)
                                       if v.rhythm is not None else None),
+                "motor_bpm": (float(v.motor.bpm)
+                              if v.motor is not None else None),
+                "motor_phase": (float(v.motor.phase)
+                                if v.motor is not None else None),
+                "motor_confidence": (float(v.motor.confidence)
+                                      if v.motor is not None else None),
             }
             for v in voice_state.active_voices
         ])
@@ -275,6 +311,72 @@ def test_dominant_voice_rhythm_is_musically_plausible(slug, track):
     assert 50.0 <= median <= 200.0, (
         f"{slug}: dominant voice median BPM {median:.0f} outside "
         f"50-200 BPM musical range"
+    )
+
+
+@pytest.mark.parametrize("slug,track", _tracklist_ids())
+def test_voice_motor_in_musical_bpm_range_when_present(slug, track):
+    """When the track's parquet carries a motor layer, every per-voice
+    motor BPM should fall within the musical range. Motor DFT uses
+    the same 60-240 BPM window as rhythm DFT, so out-of-range values
+    would indicate broken DFT windowing."""
+    parquet = STATE_DIR / f"{slug}.parquet"
+    if not parquet.exists():
+        pytest.skip(f"{parquet} not present — run rip_corpus")
+    voices_per_step = _extract_voices_over_track(parquet)
+    if not voices_per_step:
+        pytest.skip(f"{slug} parquet has no pitch data")
+    total = 0
+    out_of_range = 0
+    any_motor = False
+    for frame in voices_per_step:
+        for v in frame:
+            if v.get("motor_bpm") is None:
+                continue
+            any_motor = True
+            total += 1
+            if not (30.0 <= v["motor_bpm"] <= 240.0):
+                out_of_range += 1
+    if not any_motor:
+        pytest.skip(f"{slug} has no motor layer in parquet")
+    ratio = out_of_range / total if total else 0.0
+    assert ratio < 0.05, (
+        f"{slug}: {out_of_range}/{total} motor BPMs outside [30, 240] "
+        f"({ratio:.1%})"
+    )
+
+
+@pytest.mark.parametrize("slug,track", _tracklist_ids())
+def test_voice_motor_and_rhythm_mostly_agree(slug, track):
+    """For the same voice at the same frame, motor and rhythm BPMs
+    should land in the same general tempo neighborhood most of the
+    time — motor is the anticipatory echo of rhythm entrainment, not
+    an independent tempo. We allow a ratio band of [0.45, 2.2] to
+    accommodate half-time / double-time relationships (common when
+    motor picks a different subdivision)."""
+    parquet = STATE_DIR / f"{slug}.parquet"
+    if not parquet.exists():
+        pytest.skip(f"{parquet} not present — run rip_corpus")
+    voices_per_step = _extract_voices_over_track(parquet)
+    if not voices_per_step:
+        pytest.skip(f"{slug} parquet has no pitch data")
+    pairs = []
+    for frame in voices_per_step:
+        for v in frame:
+            rb = v.get("rhythm_bpm")
+            mb = v.get("motor_bpm")
+            if rb is not None and mb is not None and rb > 0 and mb > 0:
+                pairs.append((rb, mb))
+    if not pairs:
+        pytest.skip(f"{slug} has no rhythm+motor pair coverage")
+    agree = sum(1 for rb, mb in pairs if 0.45 <= (mb / rb) <= 2.2)
+    ratio = agree / len(pairs)
+    # ≥60% should agree within a 2x tempo band — tight enough to
+    # catch "motor picks a completely random frequency" but loose
+    # enough for legitimate subdivision mismatches.
+    assert ratio >= 0.6, (
+        f"{slug}: motor/rhythm BPM agreement only {ratio:.1%} "
+        f"({agree}/{len(pairs)})"
     )
 
 

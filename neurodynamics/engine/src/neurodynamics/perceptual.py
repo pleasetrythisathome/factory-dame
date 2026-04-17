@@ -117,6 +117,11 @@ class StateWindow:
     w_pitch : optional learned Hebbian pitch weights, shape (n_p, n_p)
         complex. Diagonal is the tonal hierarchy. When None, key
         detection falls back to pitch-amplitude chroma.
+    motor_z, motor_freqs : optional motor-GrFNN state and its
+        oscillator frequencies. When populated, per-voice motor
+        coupling (Phase 3) reads the motor layer to give each voice
+        an anticipated-beat phase — motor oscillators carry forward
+        prediction via their bidirectional coupling to sensory rhythm.
     """
 
     pitch_z: np.ndarray
@@ -125,6 +130,8 @@ class StateWindow:
     rhythm_freqs: np.ndarray
     frame_hz: float
     w_pitch: np.ndarray | None = None
+    motor_z: np.ndarray | None = None
+    motor_freqs: np.ndarray | None = None
 
     @property
     def pitch_z_2d(self) -> np.ndarray:
@@ -133,6 +140,12 @@ class StateWindow:
     @property
     def rhythm_z_2d(self) -> np.ndarray:
         return np.atleast_2d(self.rhythm_z)
+
+    @property
+    def motor_z_2d(self) -> np.ndarray | None:
+        if self.motor_z is None:
+            return None
+        return np.atleast_2d(self.motor_z)
 
 
 def extract_tempo(window: StateWindow) -> tuple[float, float]:

@@ -166,6 +166,22 @@ class OSCBroadcaster:
                                          int(v.rhythm.osc_idx))
                 self.client.send_message(f"{base}/rhythm/confidence",
                                          float(v.rhythm.confidence))
+            # Per-voice motor (Phase 3) — predictive beat phase. The
+            # semantic distinction from rhythm: motor carries forward-
+            # prediction through bidirectional sensory↔motor coupling,
+            # so this phase is the anticipated next beat rather than
+            # the current sensory one.
+            if v.motor is not None:
+                self.client.send_message(f"{base}/motor/freq",
+                                         float(v.motor.freq))
+                self.client.send_message(f"{base}/motor/bpm",
+                                         float(v.motor.bpm))
+                self.client.send_message(f"{base}/motor/phase",
+                                         float(v.motor.phase))
+                self.client.send_message(f"{base}/motor/osc_idx",
+                                         int(v.motor.osc_idx))
+                self.client.send_message(f"{base}/motor/confidence",
+                                         float(v.motor.confidence))
         # Signal deactivation for voices that went silent this frame.
         for v in voice_state.voices:
             if not v.active and v.silent_frames == 1:

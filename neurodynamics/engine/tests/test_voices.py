@@ -674,3 +674,152 @@ def test_voice_rhythm_silent_voices_untouched(base_freqs, rhythm_bank):
     silent_voices = [v for v in state.voices if not v.active]
     # Silent voice's rhythm is preserved from when it was active
     assert silent_voices[0].rhythm == original_rhythm
+
+
+# ── Phase 3: per-voice motor coupling ──────────────────────────────
+
+def _window_with_rhythm_and_motor(
+    pitch_z: np.ndarray,
+    pitch_freqs: np.ndarray,
+    rhythm_freqs: np.ndarray,
+    motor_freqs: np.ndarray,
+    motor_phase_offset: float = np.pi / 3,
+    frame_hz: float = 60.0,
+):
+    """StateWindow with both rhythm and motor oscillator banks.
+    Motor oscillators have a deliberate phase offset so tests can
+    distinguish them from rhythm phases."""
+    n_frames = pitch_z.shape[0]
+    t = np.arange(n_frames) / frame_hz
+    rhythm_z = np.zeros((n_frames, len(rhythm_freqs)), dtype=np.complex128)
+    for i, f in enumerate(rhythm_freqs):
+        rhythm_z[:, i] = np.exp(1j * 2 * np.pi * f * t)
+    motor_z = np.zeros((n_frames, len(motor_freqs)), dtype=np.complex128)
+    for i, f in enumerate(motor_freqs):
+        motor_z[:, i] = np.exp(1j * (2 * np.pi * f * t + motor_phase_offset))
+    return StateWindow(
+        pitch_z=pitch_z, pitch_freqs=pitch_freqs,
+        rhythm_z=rhythm_z, rhythm_freqs=rhythm_freqs,
+        motor_z=motor_z, motor_freqs=motor_freqs,
+        frame_hz=frame_hz,
+    )
+
+
+def test_voice_motor_at_120_bpm(base_freqs, rhythm_bank):
+    """Motor matching uses the same DFT as rhythm matching but on
+    the motor bank. A 2 Hz envelope → motor.bpm ≈ 120."""
+    from neurodynamics.voices import extract_voice_motor
+    motor_bank = rhythm_bank.copy()  # same range in this test
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm_and_motor(
+        pitch_z, base_freqs, rhythm_bank, motor_bank
+    )
+    state = extract_voices(w)
+    state = extract_voice_motor(w, state)
+    v = state.active_voices[0]
+    assert v.motor is not None
+    assert 115.0 < v.motor.bpm < 125.0
+    assert v.motor.confidence > 0.3
+
+
+def test_voice_motor_phase_reads_motor_not_rhythm(base_freqs, rhythm_bank):
+    """The motor phase in VoiceMotor should be the motor oscillator's
+    phase, not the rhythm oscillator's. Motor has a π/3 phase offset
+    in the test fixture so we can tell them apart."""
+    from neurodynamics.voices import extract_voice_motor
+    motor_bank = rhythm_bank.copy()
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm_and_motor(
+        pitch_z, base_freqs, rhythm_bank, motor_bank,
+        motor_phase_offset=np.pi / 3,
+    )
+    state = extract_voices(w)
+    state = extract_voice_rhythms(w, state)
+    state = extract_voice_motor(w, state)
+    v = state.active_voices[0]
+    assert v.rhythm is not None
+    assert v.motor is not None
+    # Motor phase should equal motor_z[-1, motor.osc_idx] phase.
+    expected_motor_phase = np.angle(w.motor_z_2d[-1, v.motor.osc_idx])
+    assert abs(v.motor.phase - float(expected_motor_phase)) < 1e-6
+    # Rhythm phase should equal rhythm_z[-1, rhythm.osc_idx] phase.
+    expected_rhythm_phase = np.angle(w.rhythm_z_2d[-1, v.rhythm.osc_idx])
+    assert abs(v.rhythm.phase - float(expected_rhythm_phase)) < 1e-6
+
+
+def test_voice_motor_without_motor_bank_returns_unchanged(
+    base_freqs, rhythm_bank
+):
+    """If the StateWindow has no motor state, extract_voice_motor
+    should leave the voice state untouched (motor stays None)."""
+    from neurodynamics.voices import extract_voice_motor
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)  # no motor
+    state = extract_voices(w)
+    original = state.active_voices[0]
+    state = extract_voice_motor(w, state)
+    v = state.active_voices[0]
+    assert v.motor is None
+    # Everything else is unchanged
+    assert v.id == original.id
+    assert v.oscillator_indices == original.oscillator_indices
+
+
+def test_voice_motor_different_bank_than_rhythm(base_freqs, rhythm_bank):
+    """Motor and rhythm banks can have different frequencies. The
+    motor match should pick from the motor bank, not the rhythm
+    bank."""
+    from neurodynamics.voices import extract_voice_motor
+    # Motor bank covers 1-8 Hz (60-480 BPM), rhythm covers 0.5-10.
+    motor_bank = np.geomspace(1.0, 8.0, 30)
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm_and_motor(
+        pitch_z, base_freqs, rhythm_bank, motor_bank
+    )
+    state = extract_voices(w)
+    state = extract_voice_motor(w, state)
+    v = state.active_voices[0]
+    assert v.motor is not None
+    # Motor bank index must be in range for the motor bank, not the
+    # rhythm bank.
+    assert 0 <= v.motor.osc_idx < len(motor_bank)
+    assert v.motor.freq == motor_bank[v.motor.osc_idx]
+
+
+def test_voice_motor_and_rhythm_compose_independently(base_freqs, rhythm_bank):
+    """Running extract_voice_rhythms and extract_voice_motor in any
+    order populates both fields — they're orthogonal."""
+    from neurodynamics.voices import extract_voice_motor
+    motor_bank = rhythm_bank.copy()
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm_and_motor(
+        pitch_z, base_freqs, rhythm_bank, motor_bank
+    )
+    # Order A: rhythm then motor
+    a = extract_voices(w)
+    a = extract_voice_rhythms(w, a)
+    a = extract_voice_motor(w, a)
+    # Order B: motor then rhythm
+    b = extract_voices(w)
+    b = extract_voice_motor(w, b)
+    b = extract_voice_rhythms(w, b)
+    va, vb = a.active_voices[0], b.active_voices[0]
+    assert va.rhythm is not None and va.motor is not None
+    assert vb.rhythm is not None and vb.motor is not None
+    assert va.rhythm == vb.rhythm
+    assert va.motor == vb.motor

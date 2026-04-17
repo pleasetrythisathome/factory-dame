@@ -60,10 +60,12 @@ from .perceptual import StateWindow
 __all__ = [
     "VoiceIdentity",
     "VoiceRhythm",
+    "VoiceMotor",
     "VoiceState",
     "VoiceClusteringConfig",
     "extract_voices",
     "extract_voice_rhythms",
+    "extract_voice_motor",
 ]
 
 
@@ -105,6 +107,32 @@ class VoiceRhythm:
 
 
 @dataclass(frozen=True)
+class VoiceMotor:
+    """Motor association for a single voice — the motor-GrFNN
+    oscillator whose natural frequency best matches the voice's
+    amplitude envelope.
+
+    Phase 3 primitive. Structurally symmetric to ``VoiceRhythm``
+    but semantically different: motor oscillators carry forward-
+    predictive state through their bidirectional coupling with the
+    sensory rhythm network. A voice's motor phase is its
+    *anticipated* next beat — the position where the felt pulse
+    will land — rather than the current sensory beat. For the
+    modular use case this becomes a per-voice "beat prediction" CV
+    that keeps ticking even when the voice goes silent, because
+    motor oscillators sustain briefly after the sensory drive
+    drops (see test_two_layer_pulse).
+    """
+
+    osc_idx: int          # index into the motor GrFNN oscillator bank
+    freq: float           # Hz — natural frequency of that oscillator
+    bpm: float            # freq × 60 for convenience
+    phase: float          # radians, (-π, π] — anticipated-beat phase
+    confidence: float     # 0-1 — DFT peak dominance in voice envelope
+                          # spectrum against the motor bank
+
+
+@dataclass(frozen=True)
 class VoiceIdentity:
     """A single voice cluster with persistent identity across frames.
 
@@ -128,6 +156,7 @@ class VoiceIdentity:
     age_frames: int                 # frames since first appearance
     silent_frames: int              # consecutive frames with active=False
     rhythm: VoiceRhythm | None = None
+    motor: VoiceMotor | None = None
 
 
 @dataclass
@@ -502,6 +531,81 @@ def extract_voices(
     return VoiceState(voices=new_voices, next_id=next_id)
 
 
+def _associate_voice_with_bank(
+    voice_envelopes: dict[int, np.ndarray],
+    bank_freqs: np.ndarray,
+    bank_phase_last: np.ndarray,
+    frame_hz: float,
+    min_bpm: float,
+    max_bpm: float,
+) -> dict[int, tuple[int, float, float, float]]:
+    """Match each voice's envelope against an oscillator bank via DFT.
+
+    ``voice_envelopes`` maps voice.id → envelope (1D amp-over-time).
+    Returns {voice_id: (osc_idx, freq_hz, phase_rad, confidence)} for
+    voices where a rhythm match was found. Voices with flat envelopes
+    or below-SNR peaks are omitted.
+
+    Shared by ``extract_voice_rhythms`` (rhythm bank) and
+    ``extract_voice_motor`` (motor bank). The two extractors are
+    structurally identical; they differ only in which bank they
+    associate against and in the semantic label on the output.
+    """
+    if not voice_envelopes:
+        return {}
+    n_frames = next(iter(voice_envelopes.values())).shape[0]
+    if n_frames < 8:
+        return {}
+    min_freq = min_bpm / 60.0
+    max_freq = max_bpm / 60.0
+    eligible_idx = np.where(
+        (bank_freqs >= min_freq) & (bank_freqs <= max_freq)
+    )[0]
+    if len(eligible_idx) == 0:
+        return {}
+    t = np.arange(n_frames) / frame_hz
+    freqs_eligible = bank_freqs[eligible_idx]
+    basis = np.exp(-1j * 2 * np.pi * np.outer(freqs_eligible, t)) / n_frames
+
+    out: dict[int, tuple[int, float, float, float]] = {}
+    for voice_id, env in voice_envelopes.items():
+        env_mean = float(env.mean())
+        env_std = float(env.std())
+        if env_std < 1e-6 or env_mean <= 0:
+            continue
+        env_centered = env - env_mean
+        magnitudes = np.abs(basis @ env_centered)
+        if magnitudes.max() <= 0:
+            continue
+        best_local = int(np.argmax(magnitudes))
+        best_global = int(eligible_idx[best_local])
+        peak_mag = float(magnitudes[best_local])
+        mean_mag = float(magnitudes.mean())
+        conf = (peak_mag - mean_mag) / peak_mag if peak_mag > 0 else 0.0
+        out[voice_id] = (
+            best_global,
+            float(bank_freqs[best_global]),
+            float(bank_phase_last[best_global]),
+            float(max(0.0, min(1.0, conf))),
+        )
+    return out
+
+
+def _voice_envelopes(
+    voice_state: VoiceState,
+    pitch_amps: np.ndarray,
+) -> dict[int, np.ndarray]:
+    """Compute the per-voice amplitude envelope for each active
+    voice — mean |z| across the voice's oscillator indices over the
+    window."""
+    envs: dict[int, np.ndarray] = {}
+    for v in voice_state.voices:
+        if not v.active or not v.oscillator_indices:
+            continue
+        envs[v.id] = pitch_amps[:, list(v.oscillator_indices)].mean(axis=1)
+    return envs
+
+
 def extract_voice_rhythms(
     window: StateWindow,
     voice_state: VoiceState,
@@ -537,64 +641,93 @@ def extract_voice_rhythms(
     pitch_z_2d = window.pitch_z_2d
     rhythm_z_2d = window.rhythm_z_2d
     rhythm_freqs = window.rhythm_freqs
-    frame_hz = window.frame_hz
     n_frames = pitch_z_2d.shape[0]
-
-    if n_frames < 8:
-        return voice_state  # not enough envelope samples for a DFT
-
-    min_freq = min_bpm / 60.0
-    max_freq = max_bpm / 60.0
-    eligible_mask = (rhythm_freqs >= min_freq) & (rhythm_freqs <= max_freq)
-    eligible_idx = np.where(eligible_mask)[0]
-    if len(eligible_idx) == 0:
+    if n_frames < 8 or rhythm_z_2d.shape[0] == 0:
         return voice_state
 
-    t = np.arange(n_frames) / frame_hz
-    # Precompute the DFT basis once for all voices — each row is a
-    # complex exponential at a rhythm oscillator's frequency.
-    freqs_eligible = rhythm_freqs[eligible_idx]
-    basis = np.exp(-1j * 2 * np.pi * np.outer(freqs_eligible, t)) / n_frames
-    # Rhythm oscillator phases at the final frame — these become
-    # the per-voice beat phase once the voice is bound to an osc.
-    rhythm_phase_last = np.angle(rhythm_z_2d[-1]) if rhythm_z_2d.shape[0] > 0 else np.zeros_like(rhythm_freqs)
-
-    pitch_amps = np.abs(pitch_z_2d)  # (frames, n_pitch)
+    pitch_amps = np.abs(pitch_z_2d)
+    rhythm_phase_last = np.angle(rhythm_z_2d[-1])
+    envelopes = _voice_envelopes(voice_state, pitch_amps)
+    matches = _associate_voice_with_bank(
+        envelopes, rhythm_freqs, rhythm_phase_last,
+        window.frame_hz, min_bpm, max_bpm,
+    )
 
     new_voices: list[VoiceIdentity] = []
     for v in voice_state.voices:
-        if not v.active or not v.oscillator_indices:
+        if v.id in matches:
+            osc_idx, freq, phase, conf = matches[v.id]
+            new_voices.append(replace(
+                v,
+                rhythm=VoiceRhythm(
+                    osc_idx=osc_idx,
+                    freq=freq,
+                    bpm=freq * 60.0,
+                    phase=phase,
+                    confidence=conf,
+                ),
+            ))
+        else:
             new_voices.append(v)
-            continue
-        osc_idx = list(v.oscillator_indices)
-        env = pitch_amps[:, osc_idx].mean(axis=1)
-        env_mean = float(env.mean())
-        env_std = float(env.std())
-        if env_std < 1e-6 or env_mean <= 0:
-            new_voices.append(v)  # no modulation → no meaningful rhythm
-            continue
-        env_centered = env - env_mean
-        # DFT magnitudes at each eligible rhythm frequency
-        coeffs = basis @ env_centered
-        magnitudes = np.abs(coeffs)
-        if magnitudes.max() <= 0:
+    return VoiceState(voices=new_voices, next_id=voice_state.next_id)
+
+
+def extract_voice_motor(
+    window: StateWindow,
+    voice_state: VoiceState,
+    *,
+    min_bpm: float = 60.0,
+    max_bpm: float = 240.0,
+) -> VoiceState:
+    """Associate each active voice with a motor-GrFNN oscillator.
+
+    Structurally identical to ``extract_voice_rhythms`` — DFT the
+    voice envelope against an oscillator bank, pick the best-matching
+    frequency, report that oscillator's phase. The difference is
+    semantic: motor oscillators carry *forward-predictive* state via
+    the bidirectional coupling with sensory rhythm. A voice's motor
+    phase is the anticipated next-beat position, not the current
+    beat. For the modular-bridge use case this becomes a per-voice
+    "beat prediction" CV that keeps ticking through brief silences
+    (motor sustains when sensory drive drops — see
+    test_two_layer_pulse).
+
+    If the window lacks motor state (``motor_z is None``), returns
+    ``voice_state`` unchanged — caller's state remains valid and the
+    motor field stays at whatever its previous value was (likely
+    None in that case).
+    """
+    motor_z_2d = window.motor_z_2d
+    motor_freqs = window.motor_freqs
+    if motor_z_2d is None or motor_freqs is None:
+        return voice_state
+    pitch_z_2d = window.pitch_z_2d
+    n_frames = pitch_z_2d.shape[0]
+    if n_frames < 8 or motor_z_2d.shape[0] == 0:
+        return voice_state
+
+    pitch_amps = np.abs(pitch_z_2d)
+    motor_phase_last = np.angle(motor_z_2d[-1])
+    envelopes = _voice_envelopes(voice_state, pitch_amps)
+    matches = _associate_voice_with_bank(
+        envelopes, motor_freqs, motor_phase_last,
+        window.frame_hz, min_bpm, max_bpm,
+    )
+
+    new_voices: list[VoiceIdentity] = []
+    for v in voice_state.voices:
+        if v.id in matches:
+            osc_idx, freq, phase, conf = matches[v.id]
+            new_voices.append(replace(
+                v,
+                motor=VoiceMotor(
+                    osc_idx=osc_idx,
+                    freq=freq,
+                    bpm=freq * 60.0,
+                    phase=phase,
+                    confidence=conf,
+                ),
+            ))
+        else:
             new_voices.append(v)
-            continue
-        best_local = int(np.argmax(magnitudes))
-        best_global = int(eligible_idx[best_local])
-        peak_mag = float(magnitudes[best_local])
-        mean_mag = float(magnitudes.mean())
-        # Confidence: how much the peak stands above the mean,
-        # normalized to the peak itself.
-        conf = (peak_mag - mean_mag) / peak_mag if peak_mag > 0 else 0.0
-        new_voices.append(replace(
-            v,
-            rhythm=VoiceRhythm(
-                osc_idx=best_global,
-                freq=float(rhythm_freqs[best_global]),
-                bpm=float(rhythm_freqs[best_global] * 60.0),
-                phase=float(rhythm_phase_last[best_global]),
-                confidence=float(max(0.0, min(1.0, conf))),
-            ),
-        ))
     return VoiceState(voices=new_voices, next_id=voice_state.next_id)
