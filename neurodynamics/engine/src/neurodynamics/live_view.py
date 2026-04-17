@@ -256,8 +256,18 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
 
     buffer = LiveStateBuffer(len(pf), len(rf), len(mf), snap_hz)
 
-    host = cfg.get("osc", {}).get("host", "127.0.0.1")
-    port = osc_port or int(cfg.get("osc", {}).get("port", 57120))
+    # Default viewer port: the second endpoint in [osc.endpoints]
+    # if one is configured, else fall back to the primary osc.port.
+    osc_cfg = cfg.get("osc", {})
+    host = osc_cfg.get("host", "127.0.0.1")
+    default_port = 57121
+    endpoints = osc_cfg.get("endpoints", [])
+    if endpoints:
+        default_port = int(endpoints[0].get("port", default_port))
+        host = endpoints[0].get("host", host)
+    elif "port" in osc_cfg:
+        default_port = int(osc_cfg["port"])
+    port = osc_port if osc_port is not None else default_port
     server = _build_server(buffer, host, port)
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
