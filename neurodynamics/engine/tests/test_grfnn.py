@@ -149,3 +149,73 @@ class TestChannelWeights:
         osc = np.array([210.0])  # right next to channel 1 (200)
         W = channel_to_oscillator_weights(channels, osc, sharpness=6.0)
         assert W[0].argmax() == 1  # the 200 Hz channel should dominate
+
+
+class TestStepMany:
+    """Verify step_many (batched JIT) produces the same end state as
+    calling step() sample-by-sample — up to float tolerance. This
+    guards against regressions when the JIT loop is modified."""
+
+    def _params(self, noise_amp=0.0):
+        return GrFNNParams(
+            alpha=-0.05, beta1=-1.0, beta2=-1.0,
+            delta1=0.0, delta2=0.0, epsilon=1.0,
+            input_gain=1.0,
+        ), noise_amp
+
+    def _make_pair(self, *, hebbian, delay_tau=0.0, noise_amp=0.0):
+        p, noise = self._params(noise_amp=noise_amp)
+        a = GrFNN(
+            n_oscillators=20, low_hz=1.0, high_hz=100.0, dt=0.001,
+            params=p, hebbian=hebbian,
+            learn_rate=0.1 if hebbian else 0.0,
+            weight_decay=0.01 if hebbian else 0.0,
+            delay_tau=delay_tau, delay_gain=0.1 if delay_tau else 0.0,
+            noise_amp=noise, noise_seed=42,
+        )
+        b = GrFNN(
+            n_oscillators=20, low_hz=1.0, high_hz=100.0, dt=0.001,
+            params=p, hebbian=hebbian,
+            learn_rate=0.1 if hebbian else 0.0,
+            weight_decay=0.01 if hebbian else 0.0,
+            delay_tau=delay_tau, delay_gain=0.1 if delay_tau else 0.0,
+            noise_amp=noise, noise_seed=42,
+        )
+        return a, b
+
+    def test_step_vs_step_many_no_hebbian(self):
+        """Pure nonlinear dynamics — step_many matches step() exactly
+        (no Hebbian timing difference)."""
+        a, b = self._make_pair(hebbian=False)
+        t = np.arange(200) / 1000.0
+        xs = (0.3 * np.sin(2 * np.pi * 10.0 * t)[:, None]
+              * np.ones(20)).astype(np.complex128)
+        for i in range(len(xs)):
+            a.step(xs[i].copy())
+        b.step_many(xs.copy())
+        np.testing.assert_allclose(a.z, b.z, atol=1e-9)
+
+    def test_step_vs_step_many_with_hebbian(self):
+        """With Hebbian, step_many updates W once per batch rather
+        than once per sample — so the final state drifts slightly
+        from per-step over long runs. Short batches (here 50 samples)
+        should stay within a loose tolerance."""
+        a, b = self._make_pair(hebbian=True)
+        t = np.arange(50) / 1000.0
+        xs = (0.3 * np.sin(2 * np.pi * 10.0 * t)[:, None]
+              * np.ones(20)).astype(np.complex128)
+        for i in range(len(xs)):
+            a.step(xs[i].copy())
+        b.step_many(xs.copy())
+        # End state should be close, not bit-identical, due to
+        # batched Hebbian.
+        np.testing.assert_allclose(a.z, b.z, atol=1e-3)
+
+    def test_step_many_accepts_single_sample(self):
+        """A 1-row batch is a valid input."""
+        p, _ = self._params()
+        g = GrFNN(n_oscillators=5, low_hz=1.0, high_hz=10.0, dt=0.01,
+                   params=p)
+        xs = np.ones((1, 5), dtype=np.complex128) * 0.1
+        g.step_many(xs)
+        assert g.z.shape == (5,)
