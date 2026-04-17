@@ -141,3 +141,77 @@ enabled = true
 host = "127.0.0.1"
 port = 57120   # SuperCollider default; harmless elsewhere
 # Broadcast at snapshot_hz. Each layer emits /rhythm/z and /pitch/z as float arrays.
+
+# ── Router (nd-route) ────────────────────────────────────────────
+# CV / MIDI / OSC router. Subscribes to /voice/* and /features/*
+# OSC emitted by nd-run, applies per-channel scaling, dispatches
+# to backends. Leave cv.enabled=false until an ES-9 (or other
+# DC-coupled interface) is plugged in.
+
+[router.cv]
+# Class-compliant ES-9 shows up as a 14-channel CoreAudio output.
+# Leave device=null to use the system default; set to the ES-9's
+# name string to pin to it. sample_rate matches the ES-9 default.
+enabled = false
+# device = "ES-9"
+channels = 14
+sample_rate = 48000
+block_size = 256
+
+[router.midi]
+# mido port name. Run `python -c 'import mido; print(mido.get_output_names())'`
+# to list available ports. On macOS, enable IAC Driver in Audio MIDI
+# Setup to expose a virtual port like "IAC Driver Bus 1".
+enabled = false
+port = "IAC Driver Bus 1"
+
+[router.osc]
+# The router listens on this port; nd-run's [osc] section above
+# should point here (same default 57120). To run router + SuperCollider
+# simultaneously, move one to 57121.
+listen_host = "127.0.0.1"
+listen_port = 57120
+
+# Additional OSC endpoints that receive a copy of every incoming
+# message. Useful for chaining TouchDesigner, Overtone, etc.
+# [[router.osc.forward]]
+# host = "127.0.0.1"
+# port = 8000
+
+# ── Routing table ────────────────────────────────────────────────
+# source = OSC path emitted by nd-run (glob * allowed in one segment)
+# output = "cv/<ch>" or "midi/cc/<num>" or "midi/clock"
+# scale  = "1V_per_oct" | "sawtooth_0_5V" | "unit_0_5V" | "passthrough"
+
+# Tonic as 1V/oct — drive an external quantizer to keep the modular
+# in key with the room.
+[[router.mapping]]
+source = "/features/key"
+output = "cv/0"
+scale = "1V_per_oct"
+
+# Consonance scalar → filter cutoff CV, for example.
+[[router.mapping]]
+source = "/features/consonance"
+output = "cv/1"
+scale = "unit_0_5V"
+
+# First tracked voice's rhythm phase → sawtooth on CV 2.
+# Voice 0 is the first persistent voice identity the engine found;
+# id wraps, so a wildcard would be wider but less stable per channel.
+[[router.mapping]]
+source = "/voice/0/rhythm/phase"
+output = "cv/2"
+scale = "sawtooth_0_5V"
+
+# Voice 0's motor phase — anticipatory beat prediction → CV 3.
+[[router.mapping]]
+source = "/voice/0/motor/phase"
+output = "cv/3"
+scale = "sawtooth_0_5V"
+
+# Consonance scalar duplicated to MIDI CC 7 for devices without CV input.
+[[router.mapping]]
+source = "/features/consonance"
+output = "midi/cc/7"
+scale = "unit_0_5V"
