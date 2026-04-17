@@ -319,11 +319,52 @@ class LiveEngine:
 
 def run(config_path: Path, device: str | None = None,
         block_size: int = 512) -> None:
-    """Open the input stream, run the engine until Ctrl-C."""
+    """Open the input stream, run the engine until Ctrl-C.
+
+    When the device's native sample rate doesn't match the engine's
+    target rate (16 kHz by default), opens the stream at the native
+    rate and resamples each chunk via ``scipy.signal.resample_poly``
+    before handing it to the engine. Leaving sounddevice / CoreAudio
+    to do the conversion gives noticeably worse quality — aliasing
+    artifacts and pitch drift in the cochlear bank — so we pay the
+    small CPU cost of explicit resampling.
+    """
+    from scipy.signal import resample_poly
+    from math import gcd
     with open(config_path, "rb") as f:
         cfg = tomllib.load(f)
     engine = LiveEngine(cfg)
-    fs = engine.fs
+    fs_engine = engine.fs
+
+    # Resolve the device's native sample rate so we can match it
+    # instead of asking sounddevice to silently convert.
+    devices = sd.query_devices()
+    if device is None:
+        device_info = sd.query_devices(kind="input")
+    else:
+        # Accept device name or index
+        try:
+            device_info = sd.query_devices(device, kind="input")
+        except Exception:
+            device_info = sd.query_devices(device)
+    native_rate = int(device_info["default_samplerate"])
+    device_name = device_info["name"]
+
+    # Resampling factors. If rates already match, resample_poly is
+    # a no-op pass-through (up=down=1), which is cheap enough not
+    # to branch on.
+    r_gcd = gcd(fs_engine, native_rate)
+    up = fs_engine // r_gcd
+    down = native_rate // r_gcd
+    resampling = up != 1 or down != 1
+
+    print(f"[nd-live] input device: {device_name!r} @ {native_rate} Hz")
+    print(f"[nd-live] engine rate:  {fs_engine} Hz")
+    if resampling:
+        print(f"[nd-live] resampling:   up={up}, down={down} "
+              f"(scipy resample_poly)")
+    print(f"[nd-live] block size:   {block_size} samples "
+          f"({block_size / native_rate * 1000:.1f} ms at device rate)")
 
     # Bounded queue. If processing falls behind, chunks drop rather
     # than blocking the audio callback.
@@ -332,8 +373,10 @@ def run(config_path: Path, device: str | None = None,
     def audio_callback(indata, frames, time_info, status):
         if status:
             print(f"[nd-live] {status}")
+        # Copy first so the stream's internal buffer can advance.
+        chunk = indata[:, 0].copy()
         try:
-            q.put_nowait(indata[:, 0].copy())
+            q.put_nowait(chunk)
         except queue.Full:
             pass  # drop chunk
 
@@ -345,6 +388,11 @@ def run(config_path: Path, device: str | None = None,
                 chunk = q.get(timeout=0.5)
             except queue.Empty:
                 continue
+            if resampling:
+                # resample_poly applies an anti-aliasing FIR
+                # automatically — high-quality downsampling for
+                # 48→16 kHz or whatever ratio the device lands at.
+                chunk = resample_poly(chunk, up, down).astype(np.float32)
             try:
                 engine.process(chunk)
             except Exception as e:
@@ -353,10 +401,8 @@ def run(config_path: Path, device: str | None = None,
     t = threading.Thread(target=worker, daemon=True)
     t.start()
 
-    print(f"[nd-live] opening input (fs={fs}, blocksize={block_size}, "
-          f"device={device or 'default'})")
     with sd.InputStream(
-        samplerate=fs, channels=1, dtype="float32",
+        samplerate=native_rate, channels=1, dtype="float32",
         blocksize=block_size, device=device,
         callback=audio_callback,
     ):
