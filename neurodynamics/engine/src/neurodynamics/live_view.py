@@ -41,6 +41,7 @@ from .viewer import (
 )
 
 WINDOW_S = 12.0
+VOICE_WINDOW_S = 6.0  # voice-pitch panel window, tighter than the heatmap
 
 
 class LiveStateBuffer:
@@ -96,16 +97,14 @@ class LiveStateBuffer:
         self._voice_hist_depth = int(snap_hz * window_s)
         self.voice_state: dict[int, dict] = {}  # id → latest fields
         self.voice_amp_hist: dict[int, np.ndarray] = {}   # id → (depth,)
+        self.voice_freq_hist: dict[int, np.ndarray] = {}  # id → (depth,) Hz
         self.voice_last_update: dict[int, int] = {}       # id → sample idx
         self._voice_snap_idx = 0
-        # Slot-based row assignment. Each voice gets a slot when it
-        # first appears and keeps it until retirement — so the voice
-        # always renders in the same row for its lifetime. Without
-        # this the rows reshuffle every time a voice's center freq
-        # drifts (corpus data shows ~0.5 octaves of drift per voice
-        # lifetime, which produced constant jumping under freq sort).
+        # Slot assignment retained for downstream consumers (router,
+        # CSV); the pitch-y axis panel places voices by their center
+        # frequency, no slots needed there.
         self.voice_slot: dict[int, int] = {}  # id → slot index
-        self._free_slots: list[int] = []      # slots freed by retirements
+        self._free_slots: list[int] = []
 
     def _push_frame(self, idx: int, layer: str, fields: dict) -> None:
         """Commit a fully-accumulated layer snapshot into the ring."""
@@ -184,6 +183,14 @@ class LiveStateBuffer:
                     self.voice_amp_hist[voice_id] = hist
                 hist[:-1] = hist[1:]
                 hist[-1] = float(value)
+            elif field == "center_freq":
+                fhist = self.voice_freq_hist.get(voice_id)
+                if fhist is None:
+                    fhist = np.zeros(self._voice_hist_depth,
+                                      dtype=np.float32)
+                    self.voice_freq_hist[voice_id] = fhist
+                fhist[:-1] = fhist[1:]
+                fhist[-1] = float(value)
         # Slot assignment happens outside the inner lock section so
         # assign_voice_slot can take its own lock without reentry.
         if voice_id not in self.voice_slot:
@@ -203,6 +210,7 @@ class LiveStateBuffer:
             for vid in stale:
                 self.voice_state.pop(vid, None)
                 self.voice_amp_hist.pop(vid, None)
+                self.voice_freq_hist.pop(vid, None)
                 self.voice_last_update.pop(vid, None)
                 slot = self.voice_slot.pop(vid, None)
                 if slot is not None:
@@ -231,25 +239,23 @@ class LiveStateBuffer:
             # All slots taken. Caller decides what to do.
             return None
 
-    def active_voice_rows(self, limit: int) -> list[tuple[int, dict, np.ndarray, int]]:
-        """Return currently-tracked voices as
-        ``(voice_id, state, amp_history, slot)`` tuples.
+    def active_voice_traces(self) -> list[tuple[int, dict, np.ndarray, np.ndarray]]:
+        """Return every currently-tracked voice as
+        ``(voice_id, state, amp_history, freq_history)`` tuples.
 
-        Each voice carries its assigned slot so the caller can place
-        it consistently across frames. Voices without a slot (panel
-        full when they appeared) are omitted so the visible rows
-        stay stable for the voices that DID get a slot."""
+        Used by the pitch-y-axis panel, which places voices by their
+        actual center_freq rather than a fixed slot. No limit applied
+        — each voice renders as a line in pitch space so overlap is
+        resolved by vertical position, not row count."""
         with self._lock:
             items = []
             for vid, state in self.voice_state.items():
-                hist = self.voice_amp_hist.get(vid)
-                if hist is None:
+                amp_hist = self.voice_amp_hist.get(vid)
+                freq_hist = self.voice_freq_hist.get(vid)
+                if amp_hist is None or freq_hist is None:
                     continue
-                slot = self.voice_slot.get(vid)
-                if slot is None or slot >= limit:
-                    continue
-                items.append((vid, dict(state), hist.copy(), slot))
-            items.sort(key=lambda x: x[3])  # by slot ascending
+                items.append((vid, dict(state),
+                              amp_hist.copy(), freq_hist.copy()))
             return items
 
     def latest(self, depth: int) -> dict:
@@ -382,10 +388,7 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
 
     window_depth = int(snap_hz * WINDOW_S)
 
-    # ── Figure layout (matches offline viewer + per-voice panel) ─
-    # Per-voice sparklines get their own full-width row, sized by
-    # expected voice count on real music (up to ~8 simultaneous).
-    VOICE_ROWS = 8
+    # ── Figure layout (matches offline viewer + voice-pitch panel) ─
     row_h = [1.0, 3, 3, 3, 2, 1, 3]  # banner, pitch heat, rhythm heat,
                                      # scopes, coherence, phantom, voices
     if motor_enabled:
@@ -527,41 +530,38 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
                                     alpha=0.95, zorder=6, capstyle="butt")
     ax_p.add_collection(voice_lines_p)
 
-    # ── Per-voice sparklines panel ────────────────────────────────
-    # Each tracked voice gets one stacked row showing its amplitude
-    # envelope over the 12 s window, colored to match its voice-id
-    # palette entry. Empty rows stay blank for inactive slots.
-    ax_voices.set_xlim(-WINDOW_S, 0.0)
-    ax_voices.set_ylim(-0.5, VOICE_ROWS - 0.5)
-    ax_voices.invert_yaxis()
-    ax_voices.set_yticks([])
+    # ── Per-voice pitch tracker ───────────────────────────────────
+    # Piano-roll-meets-oscilloscope: each tracked voice renders as a
+    # horizontal-ish line placed at its actual center frequency (log
+    # y axis matching the pitch heatmap), with line thickness
+    # following amplitude — bottom of each voice's recent amp range
+    # → zero thickness, top → max thickness. Thin when fading in/out,
+    # thick when resonating. Pitch drift bends the line up/down.
+    ax_voices.set_xlim(-VOICE_WINDOW_S, 0.0)
+    ax_voices.set_yscale("log")
+    ax_voices.set_ylim(float(pf[0]), float(pf[-1]))
     ax_voices.set_xlabel("seconds ago")
-    ax_voices.set_title(f"VOICES  ·  per-voice amplitude over "
-                         f"{int(WINDOW_S)}s  ·  up to {VOICE_ROWS} "
-                         f"shown, sorted low→high freq")
-    ax_voices.grid(axis="x", color="#E4DBC6", linewidth=0.5)
-    voice_lines_v: list = []
-    voice_fills_v: list = []
+    ax_voices.set_ylabel("Hz (log)")
+    ax_voices.set_title(
+        f"VOICES  ·  per-voice pitch over {int(VOICE_WINDOW_S)}s  ·  "
+        f"line thickness = amplitude (voice-local range)"
+    )
+    ax_voices.grid(True, color="#E4DBC6", linewidth=0.5)
+    # One LineCollection holds every voice's trace; we rebuild its
+    # segments each frame so new/retiring voices reflect immediately.
+    voice_traces = LineCollection([], colors=[], linewidths=[],
+                                    capstyle="round", animated=True,
+                                    zorder=5)
+    ax_voices.add_collection(voice_traces)
+    # Labels near the right edge showing "V<id>" at each active
+    # voice's current pitch. Pre-allocate enough for the corpus max
+    # (~17 simultaneous). Unused ones stay empty.
     voice_labels_v: list = []
-    for i in range(VOICE_ROWS):
-        (ln,) = ax_voices.plot(
-            [], [], color=_INK_SOFT, linewidth=1.4,
-            solid_joinstyle="round", animated=True,
-        )
-        fill = ax_voices.fill_between(
-            [0, 1], [i, i], [i, i],
-            color=_INK_SOFT, alpha=0.0, linewidth=0, animated=True,
-        )
-        # Thin guide line separating rows.
-        ax_voices.axhline(i + 0.5, color="#E4DBC6",
-                           linewidth=0.4, zorder=1)
+    for _ in range(20):
         label = ax_voices.text(
-            -WINDOW_S + 0.1, i - 0.1, "",
-            ha="left", va="center", color=_INK_SOFT, fontsize=8,
-            animated=True,
+            0.0, 0.0, "", ha="left", va="center",
+            color=_INK_SOFT, fontsize=8, animated=True, alpha=0.0,
         )
-        voice_lines_v.append(ln)
-        voice_fills_v.append(fill)
         voice_labels_v.append(label)
 
     # Residual vmax for composite — kept small so short bursts flash.
@@ -660,63 +660,74 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
             f"CONSONANCE {conson:.2f} · VOICES {voices}"
         )
 
-        # Per-voice sparklines. Stale voices (no recent /voice/<id>
-        # updates) are dropped and their slots freed.
+        # Per-voice pitch tracker. Stale voices (no recent /voice/<id>
+        # updates) are dropped.
         buffer.prune_stale_voices(stale_after=300)
-        rows = buffer.active_voice_rows(VOICE_ROWS)
-        # Index rows by slot so we can leave empty rows blank.
-        by_slot: dict[int, tuple] = {slot: (vid, state, hist)
-                                       for (vid, state, hist, slot)
-                                       in rows}
-        # Shared amp scale — keeps a quiet voice visible alongside a
-        # loud one without the loud one dominating.
-        max_amp = 0.0
-        for _, _, hist in by_slot.values():
-            if len(hist):
-                m = float(hist.max())
-                if m > max_amp:
-                    max_amp = m
-        max_amp = max(max_amp, 0.05)
-        x_axis = np.linspace(-WINDOW_S, 0.0, buffer._voice_hist_depth)
-        for slot in range(VOICE_ROWS):
-            ln = voice_lines_v[slot]
-            fill = voice_fills_v[slot]
-            label = voice_labels_v[slot]
-            try:
-                fill.remove()
-            except Exception:
-                pass
-            entry = by_slot.get(slot)
-            if entry is not None:
-                vid, state, hist = entry
-                color = _VOICE_PALETTE[vid % len(_VOICE_PALETTE)]
-                normalized = np.clip(hist / max_amp, 0.0, 1.0) * 0.42
-                y = slot + 0.3 - normalized
-                ln.set_data(x_axis, y)
-                ln.set_color(color)
-                new_fill = ax_voices.fill_between(
-                    x_axis, slot + 0.3, y, color=color, alpha=0.18,
-                    linewidth=0, animated=True,
-                )
-                voice_fills_v[slot] = new_fill
-                freq = state.get("center_freq", 0.0)
-                label.set_text(f"V{vid} · {freq:.0f} Hz")
-                label.set_color(color)
+        traces = buffer.active_voice_traces()
+        # Show only the last VOICE_WINDOW_S of each history.
+        hist_depth = buffer._voice_hist_depth
+        show_depth = min(int(buffer.snap_hz * VOICE_WINDOW_S),
+                         hist_depth)
+        full_x = np.linspace(-WINDOW_S, 0.0, hist_depth)
+        show_x = full_x[-show_depth:]
+        segments: list = []
+        seg_colors: list = []
+        seg_widths: list = []
+        MAX_LW = 5.0  # line width at full voice amp
+        label_targets: list[tuple[int, float, str]] = []
+        for vid, state, amp_hist, freq_hist in traces:
+            amp = amp_hist[-show_depth:]
+            freq = freq_hist[-show_depth:]
+            if len(amp) < 2:
+                continue
+            # Per-voice amp normalization: bottom of voice's current
+            # range → 0 thickness, top → MAX_LW. Keeps each voice
+            # visually expressive regardless of absolute loudness.
+            amin = float(amp.min())
+            amax = float(amp.max())
+            rng = max(amax - amin, 1e-6)
+            w = (amp - amin) / rng * MAX_LW
+            # LineCollection builds segments between consecutive points.
+            # Freq=0 means "no reading yet" — drop those segments.
+            valid = freq > 0
+            color = _VOICE_PALETTE[vid % len(_VOICE_PALETTE)]
+            for i in range(len(amp) - 1):
+                if not (valid[i] and valid[i + 1]):
+                    continue
+                segments.append([
+                    (show_x[i], freq[i]),
+                    (show_x[i + 1], freq[i + 1]),
+                ])
+                # Use the average of the two endpoints' widths.
+                seg_colors.append(color)
+                seg_widths.append(float((w[i] + w[i + 1]) * 0.5))
+            # Label at current position (rightmost valid sample).
+            last_valid = np.where(valid)[0]
+            if len(last_valid):
+                current_freq = float(freq[last_valid[-1]])
+                if current_freq > 0:
+                    label_targets.append((vid, current_freq,
+                                           f"V{vid}"))
+        voice_traces.set_segments(segments)
+        voice_traces.set_color(seg_colors)
+        voice_traces.set_linewidths(seg_widths)
+        # Update labels; unused slots hide themselves.
+        for i, label in enumerate(voice_labels_v):
+            if i < len(label_targets):
+                vid, freq, text = label_targets[i]
+                label.set_position((0.05, freq))
+                label.set_text(text)
+                label.set_color(_VOICE_PALETTE[vid % len(_VOICE_PALETTE)])
+                label.set_alpha(0.9)
             else:
-                ln.set_data([], [])
-                new_fill = ax_voices.fill_between(
-                    [0, 1], [slot, slot], [slot, slot],
-                    color=_INK_SOFT, alpha=0.0, linewidth=0,
-                    animated=True,
-                )
-                voice_fills_v[slot] = new_fill
                 label.set_text("")
+                label.set_alpha(0.0)
 
         artists = [features_text, im_p, im_r,
                    scope_p["current"], *scope_p["history"], scope_p["fill"],
                    scope_r["current"], *scope_r["history"], scope_r["fill"],
                    im_psp, im_prs, im_php, im_phr, voice_lines_p,
-                   *voice_lines_v, *voice_fills_v, *voice_labels_v]
+                   voice_traces, *voice_labels_v]
         if im_m is not None:
             artists.append(im_m)
         return tuple(artists)
