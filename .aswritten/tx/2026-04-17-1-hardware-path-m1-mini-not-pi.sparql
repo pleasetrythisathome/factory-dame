@@ -1,0 +1,107 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa: <http://www.w3.org/ns/oa#>
+
+INSERT DATA {
+  narr:Tx_20260416T235959Z a prov:Activity ;
+    prov:generatedAtTime "2026-04-16T23:59:59Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-04-16-hardware-path-m1-mini.md" ;
+    narr:originRef "main" ;
+    prov:generated narr:Sample_HardwarePathM1Mini_20260416, narr:Claim_M1MiniMidTermPath, narr:Claim_PiShelved, narr:Claim_OptimizationForLiveMode, narr:Claim_NoveltyOverHardwareEngineering, narr:StyleMetrics_HardwarePathM1Mini, narr:StyleObs_CorrectionMarker, narr:StyleObs_DirectQuote, narr:StyleObs_TechnicalJargon .
+} ;
+
+INSERT DATA {
+  GRAPH narr:Tx_20260416T235959Z {
+    narr:Sample_HardwarePathM1Mini_20260416 a narr:Sample ;
+      dct:title "Hardware path for the live-NRT-to-modular vision: M1 Mac mini, not Raspberry Pi" ;
+      dct:created "2026-04-16"^^xsd:date ;
+      narr:inputLength 1850 .
+
+    narr:Claim_M1MiniMidTermPath a narr:Claim ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      skos:note "The mid-term hardware path is the M1 Mac mini 8GB (already owned), running headless via SSH. This replaces the previous Raspberry Pi 5 / LattePanda suggestion." .
+
+    narr:Claim_PiShelved a narr:Claim ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      skos:note "Raspberry Pi or custom SBC deployment is shelved unless external demand for a low-cost form factor materializes." .
+
+    narr:Claim_OptimizationForLiveMode a narr:Claim ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      skos:note "Engine optimization (task-015) is required to enable live mode (task-005), not for hardware compatibility. The engine needs a 3x speedup even on M-series hardware to stream audio chunks at 1x realtime." .
+
+    narr:Claim_NoveltyOverHardwareEngineering a narr:Claim ;
+      narr:aboutNode narr:Narrative_NoveltyAsNorthStar ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      narr:supports narr:Narrative_DeepFirstNotShallowFirst ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      skos:note "When hardware-compatibility optimization competes with novel-capability investment, choose the latter. The novelty lives in the engine and voice primitives, not the deployment hardware." .
+
+    narr:StyleMetrics_HardwarePathM1Mini a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      narr:AverageSentenceLength 16 ;
+      narr:ActiveVoiceRatio 0.85 ;
+      narr:JargonDensity 0.12 ;
+      skos:note "Direct, corrective register. Uses structured lists and explicit 'Correction' headers. High conviction." .
+
+    narr:StyleObs_CorrectionMarker a narr:StyleObservation ;
+      skos:broader narr:OrthographySpelling ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_HardwarePathM1Mini_20260416 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 101 ; oa:end 111 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "Correction" ; oa:prefix "## " ; oa:suffix " (2026-04-16)" ]
+      ] .
+
+    narr:StyleObs_DirectQuote a narr:StyleObservation ;
+      skos:broader narr:ToneDirectPersonal ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_HardwarePathM1Mini_20260416 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 314 ; oa:end 411 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "i have a mac mini m1 8gb ram that's sitting unused. but my laptop is fine for now and maybe ever" ; oa:prefix "> \"" ; oa:suffix "\"" ]
+      ] .
+
+    narr:StyleObs_TechnicalJargon a narr:StyleObservation ;
+      skos:broader narr:JargonPolicy ;
+      dct:source narr:Sample_HardwarePathM1Mini_20260416 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_HardwarePathM1Mini_20260416 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 873 ; oa:end 915 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "numba JIT on the Hopf RK4 integrator" ; oa:prefix "- " ; oa:suffix " is the remaining" ]
+      ] .
+  }
+} ;
+
+DELETE {
+  GRAPH ?g {
+    narr:Claim_MediumTermArchitectureRPi5 narr:hasConvictionLevel ?oldConviction .
+    narr:Claim_MediumTermArchitectureRPi5 skos:note ?oldNote .
+  }
+}
+INSERT {
+  GRAPH narr:Tx_20260416T235959Z {
+    narr:Claim_MediumTermArchitectureRPi5 narr:hasConvictionLevel narr:Conviction_Notion ;
+      skos:note "SUPERSEDED: The RPi5 path was shelved in favor of the M1 Mac mini. This node remains for historical context of the vision evolution." .
+  }
+}
+WHERE {
+  GRAPH ?g {
+    narr:Claim_MediumTermArchitectureRPi5 narr:hasConvictionLevel ?oldConviction ;
+      skos:note ?oldNote .
+  }
+}
