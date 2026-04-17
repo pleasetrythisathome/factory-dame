@@ -199,7 +199,15 @@ def run(config_path: Path, audio_override: Path | None = None,
         layers_meta["motor"] = {"f": motor_net.f}
     state = StateLog(out_path, layers=layers_meta)
     osc_cfg = cfg["osc"]
-    osc = OSCBroadcaster(osc_cfg["host"], osc_cfg["port"], osc_cfg["enabled"])
+    endpoints = [
+        (e["host"], int(e["port"]))
+        for e in osc_cfg.get("endpoints", [])
+    ]
+    osc = OSCBroadcaster(
+        host=osc_cfg.get("host"), port=osc_cfg.get("port"),
+        enabled=osc_cfg["enabled"],
+        endpoints=endpoints,
+    )
     # Mutable state threaded through the snapshot loop. prev_peak_idx
     # carries the persistence hint for the rhythm structure extractor
     # so the main-beat BPM doesn't flip between adjacent oscillators.

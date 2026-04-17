@@ -139,8 +139,17 @@ output_dir = "output"
 [osc]
 enabled = true
 host = "127.0.0.1"
-port = 57120   # SuperCollider default; harmless elsewhere
+port = 57120   # legacy single target; router binds here too
 # Broadcast at snapshot_hz. Each layer emits /rhythm/z and /pitch/z as float arrays.
+#
+# Additional endpoints — engine fans every message out to all of them.
+# UDP doesn't share ports across receivers, so router + live viewer +
+# TouchDesigner each bind their own port and the engine sends to all.
+# Uncomment for dev topology where live viewer runs alongside router:
+#
+# [[osc.endpoints]]
+# host = "127.0.0.1"
+# port = 57121   # nd-view --live --port 57121
 
 # ── Router (nd-route) ────────────────────────────────────────────
 # CV / MIDI / OSC router. Subscribes to /voice/* and /features/*

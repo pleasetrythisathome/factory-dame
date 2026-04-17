@@ -113,8 +113,15 @@ class LiveEngine:
         self.motor_backward = float(m_cfg.get("backward_gain", 0.0))
         self.W_pitch = channel_to_oscillator_weights(self.fb.fc, self.pitch.f)
         osc_cfg = cfg["osc"]
-        self.osc = OSCBroadcaster(osc_cfg["host"], osc_cfg["port"],
-                                    osc_cfg["enabled"])
+        endpoints = [
+            (e["host"], int(e["port"]))
+            for e in osc_cfg.get("endpoints", [])
+        ]
+        self.osc = OSCBroadcaster(
+            host=osc_cfg.get("host"), port=osc_cfg.get("port"),
+            enabled=osc_cfg["enabled"],
+            endpoints=endpoints,
+        )
         self.snap_hz = int(cfg["state_log"]["snapshot_hz"])
         self.snap_interval_samples = fs // self.snap_hz
         self.phantom_cfg = cfg["phantom"]

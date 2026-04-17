@@ -1,5 +1,12 @@
 """OSC broadcaster. Language-agnostic bridge to SuperCollider, TouchDesigner,
-Overtone/Quil, browsers via osc.js, etc."""
+Overtone/Quil, browsers via osc.js, etc.
+
+Fans out every message to ALL configured endpoints, so the router,
+live viewer, TouchDesigner, and any other consumer can each bind
+their own UDP port and receive the full stream independently.
+UDP doesn't share ports across listeners, so "broadcast to many,
+receive on one each" is the right topology.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +15,46 @@ from pythonosc.udp_client import SimpleUDPClient
 
 
 class OSCBroadcaster:
-    def __init__(self, host: str, port: int, enabled: bool = True):
+    """One broadcaster, many destinations.
+
+    Constructor accepts either the legacy single-destination
+    ``host``/``port`` form (kept for backward compatibility with the
+    original ``[osc]`` config block) OR a list of ``(host, port)``
+    endpoints. Internally the broadcaster holds a list of UDP clients
+    and forwards every message to each one.
+    """
+
+    def __init__(self, host: str | None = None, port: int | None = None,
+                 enabled: bool = True,
+                 endpoints: list[tuple[str, int]] | None = None):
         self.enabled = enabled
-        self.client = SimpleUDPClient(host, port) if enabled else None
+        targets: list[tuple[str, int]] = []
+        if endpoints:
+            targets.extend(endpoints)
+        if host is not None and port is not None:
+            targets.append((host, int(port)))
+        # Deduplicate while preserving order.
+        seen: set[tuple[str, int]] = set()
+        self.endpoints: list[tuple[str, int]] = []
+        for t in targets:
+            if t in seen:
+                continue
+            seen.add(t)
+            self.endpoints.append(t)
+        self._clients: list[SimpleUDPClient] = (
+            [SimpleUDPClient(h, p) for h, p in self.endpoints]
+            if enabled else []
+        )
+        # Legacy attribute, retained for any downstream code that
+        # was reading ``.client`` directly.
+        self.client = self._clients[0] if self._clients else None
+
+    def _send(self, address: str, value) -> None:
+        """Fan-out: send ``value`` to every configured endpoint."""
+        if not self.enabled:
+            return
+        for client in self._clients:
+            client.send_message(address, value)
 
     def send_layer(self, layer: str, z: np.ndarray,
                    phantom: np.ndarray, drive: np.ndarray,
@@ -19,13 +63,13 @@ class OSCBroadcaster:
             return
         amp = np.abs(z).astype(np.float32).tolist()
         phase = np.angle(z).astype(np.float32).tolist()
-        self.client.send_message(f"/{layer}/amp", amp)
-        self.client.send_message(f"/{layer}/phase", phase)
-        self.client.send_message(f"/{layer}/phantom",
+        self._send(f"/{layer}/amp", amp)
+        self._send(f"/{layer}/phase", phase)
+        self._send(f"/{layer}/phantom",
                                  phantom.astype(np.int32).tolist())
-        self.client.send_message(f"/{layer}/drive",
+        self._send(f"/{layer}/drive",
                                  drive.astype(np.float32).tolist())
-        self.client.send_message(f"/{layer}/residual",
+        self._send(f"/{layer}/residual",
                                  residual.astype(np.float32).tolist())
 
     def send_features(self, features: dict) -> None:
@@ -38,31 +82,31 @@ class OSCBroadcaster:
         if not self.enabled:
             return
         if "tempo" in features:
-            self.client.send_message("/features/tempo",
+            self._send("/features/tempo",
                                      float(features["tempo"]))
         if "tempo_conf" in features:
-            self.client.send_message("/features/tempo_confidence",
+            self._send("/features/tempo_confidence",
                                      float(features["tempo_conf"]))
         if "tonic" in features:
-            self.client.send_message("/features/key",
+            self._send("/features/key",
                                      str(features["tonic"]))
         if "mode" in features:
-            self.client.send_message("/features/mode",
+            self._send("/features/mode",
                                      str(features["mode"]))
         if "key_conf" in features:
-            self.client.send_message("/features/key_confidence",
+            self._send("/features/key_confidence",
                                      float(features["key_conf"]))
         if "chord" in features:
-            self.client.send_message("/features/chord",
+            self._send("/features/chord",
                                      str(features["chord"]))
         if "chord_quality" in features:
-            self.client.send_message("/features/chord_quality",
+            self._send("/features/chord_quality",
                                      str(features["chord_quality"]))
         if "chord_conf" in features:
-            self.client.send_message("/features/chord_confidence",
+            self._send("/features/chord_confidence",
                                      float(features["chord_conf"]))
         if "consonance" in features:
-            self.client.send_message("/features/consonance",
+            self._send("/features/consonance",
                                      float(features["consonance"]))
 
     def send_rhythm_structure(self, rhythm: dict) -> None:
@@ -89,26 +133,26 @@ class OSCBroadcaster:
             return
         peak = rhythm.get("peak", {})
         if peak:
-            self.client.send_message("/rhythm/peak/freq",
+            self._send("/rhythm/peak/freq",
                                      float(peak.get("freq", 0.0)))
-            self.client.send_message("/rhythm/peak/bpm",
+            self._send("/rhythm/peak/bpm",
                                      float(peak.get("bpm", 0.0)))
-            self.client.send_message("/rhythm/peak/phase",
+            self._send("/rhythm/peak/phase",
                                      float(peak.get("phase", 0.0)))
-            self.client.send_message("/rhythm/peak/idx",
+            self._send("/rhythm/peak/idx",
                                      int(peak.get("idx", 0)))
         companions = rhythm.get("companions", [])
-        self.client.send_message("/rhythm/companion/count", len(companions))
+        self._send("/rhythm/companion/count", len(companions))
         for i, comp in enumerate(companions):
             base = f"/rhythm/companion/{i}"
-            self.client.send_message(f"{base}/ratio",
+            self._send(f"{base}/ratio",
                                      [int(comp["ratio_p"]),
                                       int(comp["ratio_q"])])
-            self.client.send_message(f"{base}/freq",
+            self._send(f"{base}/freq",
                                      float(comp["freq"]))
-            self.client.send_message(f"{base}/phase",
+            self._send(f"{base}/phase",
                                      float(comp["phase"]))
-            self.client.send_message(f"{base}/plv",
+            self._send(f"{base}/plv",
                                      float(comp["plv"]))
 
     def send_voices(self, voice_state) -> None:
@@ -133,22 +177,22 @@ class OSCBroadcaster:
         if not self.enabled:
             return
         active = [v for v in voice_state.voices if v.active]
-        self.client.send_message("/voice/active_count", len(active))
-        self.client.send_message(
+        self._send("/voice/active_count", len(active))
+        self._send(
             "/voice/active_ids",
             [int(v.id) for v in active] if active else [-1],
         )
         for v in active:
             base = f"/voice/{int(v.id)}"
-            self.client.send_message(f"{base}/active", 1)
-            self.client.send_message(f"{base}/center_freq",
+            self._send(f"{base}/active", 1)
+            self._send(f"{base}/center_freq",
                                      float(v.center_freq))
-            self.client.send_message(f"{base}/amp", float(v.amp))
-            self.client.send_message(f"{base}/phase",
+            self._send(f"{base}/amp", float(v.amp))
+            self._send(f"{base}/phase",
                                      float(v.phase_centroid))
-            self.client.send_message(f"{base}/confidence",
+            self._send(f"{base}/confidence",
                                      float(v.confidence))
-            self.client.send_message(f"{base}/age_frames",
+            self._send(f"{base}/age_frames",
                                      int(v.age_frames))
             # Per-voice rhythm (Phase 2). The OSC consumer uses the
             # rhythm osc_idx + phase to generate per-voice triggers;
@@ -156,15 +200,15 @@ class OSCBroadcaster:
             # None (voice has no discernible tempo), these messages
             # are skipped so stale values don't get latched.
             if v.rhythm is not None:
-                self.client.send_message(f"{base}/rhythm/freq",
+                self._send(f"{base}/rhythm/freq",
                                          float(v.rhythm.freq))
-                self.client.send_message(f"{base}/rhythm/bpm",
+                self._send(f"{base}/rhythm/bpm",
                                          float(v.rhythm.bpm))
-                self.client.send_message(f"{base}/rhythm/phase",
+                self._send(f"{base}/rhythm/phase",
                                          float(v.rhythm.phase))
-                self.client.send_message(f"{base}/rhythm/osc_idx",
+                self._send(f"{base}/rhythm/osc_idx",
                                          int(v.rhythm.osc_idx))
-                self.client.send_message(f"{base}/rhythm/confidence",
+                self._send(f"{base}/rhythm/confidence",
                                          float(v.rhythm.confidence))
             # Per-voice motor (Phase 3) — predictive beat phase. The
             # semantic distinction from rhythm: motor carries forward-
@@ -172,17 +216,17 @@ class OSCBroadcaster:
             # so this phase is the anticipated next beat rather than
             # the current sensory one.
             if v.motor is not None:
-                self.client.send_message(f"{base}/motor/freq",
+                self._send(f"{base}/motor/freq",
                                          float(v.motor.freq))
-                self.client.send_message(f"{base}/motor/bpm",
+                self._send(f"{base}/motor/bpm",
                                          float(v.motor.bpm))
-                self.client.send_message(f"{base}/motor/phase",
+                self._send(f"{base}/motor/phase",
                                          float(v.motor.phase))
-                self.client.send_message(f"{base}/motor/osc_idx",
+                self._send(f"{base}/motor/osc_idx",
                                          int(v.motor.osc_idx))
-                self.client.send_message(f"{base}/motor/confidence",
+                self._send(f"{base}/motor/confidence",
                                          float(v.motor.confidence))
         # Signal deactivation for voices that went silent this frame.
         for v in voice_state.voices:
             if not v.active and v.silent_frames == 1:
-                self.client.send_message(f"/voice/{int(v.id)}/active", 0)
+                self._send(f"/voice/{int(v.id)}/active", 0)
