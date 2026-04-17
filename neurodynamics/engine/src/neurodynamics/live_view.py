@@ -88,6 +88,16 @@ class LiveStateBuffer:
         }
         self.features: dict = {}
         self.voices: list[dict] = []
+        # Per-voice rolling state for the VOICES panel. Each entry
+        # tracks the voice's recent amp + center_freq history so the
+        # panel can draw a sparkline over the same ~12s window as the
+        # heatmaps. Voices that stop being updated go stale and fall
+        # out of the panel.
+        self._voice_hist_depth = int(snap_hz * window_s)
+        self.voice_state: dict[int, dict] = {}  # id → latest fields
+        self.voice_amp_hist: dict[int, np.ndarray] = {}   # id → (depth,)
+        self.voice_last_update: dict[int, int] = {}       # id → sample idx
+        self._voice_snap_idx = 0
 
     def _push_frame(self, idx: int, layer: str, fields: dict) -> None:
         """Commit a fully-accumulated layer snapshot into the ring."""
@@ -134,6 +144,60 @@ class LiveStateBuffer:
                 if layer == "pitch":
                     self._write_idx = (self._write_idx + 1) % self.buf_depth
                     self._samples_written += 1
+
+    def update_voice_field(self, voice_id: int, field: str, value) -> None:
+        """Record a /voice/<id>/<field> OSC message. Voice amp drives
+        the per-voice sparkline panel; center_freq labels each row;
+        active toggles fade when a voice goes silent.
+
+        Each active voice generates amp messages at ~20 Hz while
+        alive, so a 240-sample depth at that rate holds ~12 s of
+        history — matching the heatmap window."""
+        with self._lock:
+            self._voice_snap_idx += 1
+            self.voice_last_update[voice_id] = self._voice_snap_idx
+            entry = self.voice_state.setdefault(
+                voice_id,
+                {"amp": 0.0, "center_freq": 0.0, "active": 1},
+            )
+            entry[field] = value
+            if field == "amp":
+                hist = self.voice_amp_hist.get(voice_id)
+                if hist is None:
+                    hist = np.zeros(self._voice_hist_depth,
+                                    dtype=np.float32)
+                    self.voice_amp_hist[voice_id] = hist
+                hist[:-1] = hist[1:]
+                hist[-1] = float(value)
+
+    def prune_stale_voices(self, stale_after: int = 300) -> None:
+        """Drop voices that haven't had an update in ``stale_after``
+        buffer advances (≈ 5 s at 60 Hz). Called from the animation
+        so the panel doesn't clog with retired voices."""
+        with self._lock:
+            cutoff = self._voice_snap_idx - stale_after
+            stale = [
+                vid for vid, last in self.voice_last_update.items()
+                if last < cutoff
+            ]
+            for vid in stale:
+                self.voice_state.pop(vid, None)
+                self.voice_amp_hist.pop(vid, None)
+                self.voice_last_update.pop(vid, None)
+
+    def active_voice_rows(self, limit: int) -> list[tuple[int, dict, np.ndarray]]:
+        """Return up to ``limit`` currently-tracked voices as
+        (voice_id, state_dict, amp_history) tuples, sorted by
+        center_freq ascending so low→high reads naturally."""
+        with self._lock:
+            items = []
+            for vid, state in self.voice_state.items():
+                hist = self.voice_amp_hist.get(vid)
+                if hist is None:
+                    continue
+                items.append((vid, dict(state), hist.copy()))
+            items.sort(key=lambda x: x[1].get("center_freq", 0.0))
+            return items[:limit]
 
     def latest(self, depth: int) -> dict:
         """Return a dict of (depth, n_osc) tails for every buffer.
@@ -206,6 +270,25 @@ def _build_server(buffer: LiveStateBuffer, host: str, port: int) -> ThreadingOSC
     dispatcher.map("/features/consonance", _on_consonance)
     dispatcher.map("/voice/active_count", _on_voice_count)
 
+    # Per-voice fields — dynamic ids, so we catch them in the default
+    # handler and parse the id from the OSC address.
+    def _on_default(addr, *args):
+        # Expecting /voice/<id>/<field> for the fields we care about.
+        if not addr.startswith("/voice/"):
+            return
+        parts = addr.strip("/").split("/")
+        if len(parts) < 3:
+            return
+        try:
+            voice_id = int(parts[1])
+        except ValueError:
+            return
+        field = parts[2]
+        if field in ("amp", "center_freq", "active") and args:
+            buffer.update_voice_field(voice_id, field, args[0])
+
+    dispatcher.set_default_handler(_on_default)
+
     return ThreadingOSCUDPServer((host, port), dispatcher)
 
 
@@ -246,24 +329,31 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
 
     window_depth = int(snap_hz * WINDOW_S)
 
-    # ── Figure layout (matches offline viewer) ────────────────────
-    row_h = [1.0, 3, 3, 3, 2, 1]  # banner, pitch heat, rhythm heat, scopes, phase, phantom
+    # ── Figure layout (matches offline viewer + per-voice panel) ─
+    # Per-voice sparklines get their own full-width row, sized by
+    # expected voice count on real music (up to ~8 simultaneous).
+    VOICE_ROWS = 8
+    row_h = [1.0, 3, 3, 3, 2, 1, 3]  # banner, pitch heat, rhythm heat,
+                                     # scopes, coherence, phantom, voices
     if motor_enabled:
         row_h.append(2)
-    fig = plt.figure(figsize=(14, 13 + (2 if motor_enabled else 0)),
-                      constrained_layout=True, facecolor=_PAPER)
+    fig = plt.figure(
+        figsize=(14, 16 + (2 if motor_enabled else 0)),
+        constrained_layout=True, facecolor=_PAPER,
+    )
     gs = GridSpec(len(row_h), 2, figure=fig, height_ratios=row_h,
                    width_ratios=[len(pf), len(rf)])
     ax_banner = fig.add_subplot(gs[0, :]); ax_banner.set_axis_off()
     ax_p = fig.add_subplot(gs[1, :])
     ax_r = fig.add_subplot(gs[2, :])
-    ax_sp = fig.add_subplot(gs[3, 0])   # pitch scope
-    ax_sr = fig.add_subplot(gs[3, 1])   # rhythm scope
-    ax_psp = fig.add_subplot(gs[4, 0])  # pitch coherence
-    ax_prs = fig.add_subplot(gs[4, 1])  # rhythm coherence
-    ax_php = fig.add_subplot(gs[5, 0])  # pitch phantom+residual
-    ax_phr = fig.add_subplot(gs[5, 1])  # rhythm phantom+residual
-    ax_m = fig.add_subplot(gs[6, :]) if motor_enabled else None
+    ax_sp = fig.add_subplot(gs[3, 0])
+    ax_sr = fig.add_subplot(gs[3, 1])
+    ax_psp = fig.add_subplot(gs[4, 0])
+    ax_prs = fig.add_subplot(gs[4, 1])
+    ax_php = fig.add_subplot(gs[5, 0])
+    ax_phr = fig.add_subplot(gs[5, 1])
+    ax_voices = fig.add_subplot(gs[6, :])
+    ax_m = fig.add_subplot(gs[7, :]) if motor_enabled else None
 
     # Banner
     ax_banner.text(
@@ -384,6 +474,43 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
                                     alpha=0.95, zorder=6, capstyle="butt")
     ax_p.add_collection(voice_lines_p)
 
+    # ── Per-voice sparklines panel ────────────────────────────────
+    # Each tracked voice gets one stacked row showing its amplitude
+    # envelope over the 12 s window, colored to match its voice-id
+    # palette entry. Empty rows stay blank for inactive slots.
+    ax_voices.set_xlim(-WINDOW_S, 0.0)
+    ax_voices.set_ylim(-0.5, VOICE_ROWS - 0.5)
+    ax_voices.invert_yaxis()
+    ax_voices.set_yticks([])
+    ax_voices.set_xlabel("seconds ago")
+    ax_voices.set_title(f"VOICES  ·  per-voice amplitude over "
+                         f"{int(WINDOW_S)}s  ·  up to {VOICE_ROWS} "
+                         f"shown, sorted low→high freq")
+    ax_voices.grid(axis="x", color="#E4DBC6", linewidth=0.5)
+    voice_lines_v: list = []
+    voice_fills_v: list = []
+    voice_labels_v: list = []
+    for i in range(VOICE_ROWS):
+        (ln,) = ax_voices.plot(
+            [], [], color=_INK_SOFT, linewidth=1.4,
+            solid_joinstyle="round", animated=True,
+        )
+        fill = ax_voices.fill_between(
+            [0, 1], [i, i], [i, i],
+            color=_INK_SOFT, alpha=0.0, linewidth=0, animated=True,
+        )
+        # Thin guide line separating rows.
+        ax_voices.axhline(i + 0.5, color="#E4DBC6",
+                           linewidth=0.4, zorder=1)
+        label = ax_voices.text(
+            -WINDOW_S + 0.1, i - 0.1, "",
+            ha="left", va="center", color=_INK_SOFT, fontsize=8,
+            animated=True,
+        )
+        voice_lines_v.append(ln)
+        voice_fills_v.append(fill)
+        voice_labels_v.append(label)
+
     # Residual vmax for composite — kept small so short bursts flash.
     pres_vmax = 0.1
     rres_vmax = 0.1
@@ -480,10 +607,59 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
             f"CONSONANCE {conson:.2f} · VOICES {voices}"
         )
 
+        # Per-voice sparklines. Stale voices (no recent /voice/<id>
+        # updates) are dropped so the panel doesn't fossilize.
+        buffer.prune_stale_voices(stale_after=300)
+        rows = buffer.active_voice_rows(VOICE_ROWS)
+        # Compute a shared amp scale so spikes don't visually dominate.
+        max_amp = 0.0
+        for _, _, hist in rows:
+            if len(hist):
+                m = float(hist.max())
+                if m > max_amp:
+                    max_amp = m
+        max_amp = max(max_amp, 0.05)
+        x_axis = np.linspace(-WINDOW_S, 0.0, buffer._voice_hist_depth)
+        for slot in range(VOICE_ROWS):
+            ln = voice_lines_v[slot]
+            fill = voice_fills_v[slot]
+            label = voice_labels_v[slot]
+            # Remove previous fill polygon and clear line/label.
+            try:
+                fill.remove()
+            except Exception:
+                pass
+            if slot < len(rows):
+                vid, state, hist = rows[slot]
+                color = _VOICE_PALETTE[vid % len(_VOICE_PALETTE)]
+                # Map amp [0, max_amp] → vertical offset inside row.
+                normalized = np.clip(hist / max_amp, 0.0, 1.0) * 0.42
+                y = slot + 0.3 - normalized
+                ln.set_data(x_axis, y)
+                ln.set_color(color)
+                new_fill = ax_voices.fill_between(
+                    x_axis, slot + 0.3, y, color=color, alpha=0.18,
+                    linewidth=0, animated=True,
+                )
+                voice_fills_v[slot] = new_fill
+                freq = state.get("center_freq", 0.0)
+                label.set_text(f"V{vid} · {freq:.0f} Hz")
+                label.set_color(color)
+            else:
+                ln.set_data([], [])
+                new_fill = ax_voices.fill_between(
+                    [0, 1], [slot, slot], [slot, slot],
+                    color=_INK_SOFT, alpha=0.0, linewidth=0,
+                    animated=True,
+                )
+                voice_fills_v[slot] = new_fill
+                label.set_text("")
+
         artists = [features_text, im_p, im_r,
                    scope_p["current"], *scope_p["history"], scope_p["fill"],
                    scope_r["current"], *scope_r["history"], scope_r["fill"],
-                   im_psp, im_prs, im_php, im_phr, voice_lines_p]
+                   im_psp, im_prs, im_php, im_phr, voice_lines_p,
+                   *voice_lines_v, *voice_fills_v, *voice_labels_v]
         if im_m is not None:
             artists.append(im_m)
         return tuple(artists)
