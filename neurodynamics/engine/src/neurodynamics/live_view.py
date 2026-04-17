@@ -239,23 +239,28 @@ class LiveStateBuffer:
             # All slots taken. Caller decides what to do.
             return None
 
-    def active_voice_traces(self) -> list[tuple[int, dict, np.ndarray, np.ndarray]]:
-        """Return every currently-tracked voice as
-        ``(voice_id, state, amp_history, freq_history)`` tuples.
+    def active_voice_traces(self) -> list[tuple[int, dict, np.ndarray, np.ndarray, int]]:
+        """Return every slotted voice as
+        ``(voice_id, state, amp_history, freq_history, slot)`` tuples.
 
-        Used by the pitch-y-axis panel, which places voices by their
-        actual center_freq rather than a fixed slot. No limit applied
-        — each voice renders as a line in pitch space so overlap is
-        resolved by vertical position, not row count."""
+        Voices without a slot (panel was full at birth) are omitted —
+        they still show up in the buffer state for consumers that
+        don't care about display slots, just not in the pitch panel.
+        Slots index the color palette so a given row/color corresponds
+        to a stable "voice track" regardless of which id currently
+        occupies it."""
         with self._lock:
             items = []
             for vid, state in self.voice_state.items():
+                slot = self.voice_slot.get(vid)
+                if slot is None:
+                    continue
                 amp_hist = self.voice_amp_hist.get(vid)
                 freq_hist = self.voice_freq_hist.get(vid)
                 if amp_hist is None or freq_hist is None:
                     continue
                 items.append((vid, dict(state),
-                              amp_hist.copy(), freq_hist.copy()))
+                              amp_hist.copy(), freq_hist.copy(), slot))
             return items
 
     def latest(self, depth: int) -> dict:
@@ -675,7 +680,7 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         seg_widths: list = []
         MAX_LW = 5.0  # line width at full voice amp
         label_targets: list[tuple[int, float, str]] = []
-        for vid, state, amp_hist, freq_hist in traces:
+        for vid, state, amp_hist, freq_hist, slot in traces:
             amp = amp_hist[-show_depth:]
             freq = freq_hist[-show_depth:]
             if len(amp) < 2:
@@ -687,10 +692,13 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
             amax = float(amp.max())
             rng = max(amax - amin, 1e-6)
             w = (amp - amin) / rng * MAX_LW
+            # Slot index picks the color — voices occupying the same
+            # slot share a color (only one voice per slot at a time,
+            # so there's no ambiguity in any given frame).
+            color = _VOICE_PALETTE[slot % len(_VOICE_PALETTE)]
             # LineCollection builds segments between consecutive points.
             # Freq=0 means "no reading yet" — drop those segments.
             valid = freq > 0
-            color = _VOICE_PALETTE[vid % len(_VOICE_PALETTE)]
             for i in range(len(amp) - 1):
                 if not (valid[i] and valid[i + 1]):
                     continue
@@ -706,7 +714,7 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
             if len(last_valid):
                 current_freq = float(freq[last_valid[-1]])
                 if current_freq > 0:
-                    label_targets.append((vid, current_freq,
+                    label_targets.append((slot, current_freq,
                                            f"V{vid}"))
         voice_traces.set_segments(segments)
         voice_traces.set_color(seg_colors)
@@ -714,10 +722,10 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         # Update labels; unused slots hide themselves.
         for i, label in enumerate(voice_labels_v):
             if i < len(label_targets):
-                vid, freq, text = label_targets[i]
+                slot, freq, text = label_targets[i]
                 label.set_position((0.05, freq))
                 label.set_text(text)
-                label.set_color(_VOICE_PALETTE[vid % len(_VOICE_PALETTE)])
+                label.set_color(_VOICE_PALETTE[slot % len(_VOICE_PALETTE)])
                 label.set_alpha(0.9)
             else:
                 label.set_text("")
