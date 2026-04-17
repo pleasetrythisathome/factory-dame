@@ -30,7 +30,12 @@ from .perceptual import (
     extract_tempo,
 )
 from .state_log import StateLog
-from .voices import VoiceClusteringConfig, VoiceState, extract_voices
+from .voices import (
+    VoiceClusteringConfig,
+    VoiceState,
+    extract_voice_rhythms,
+    extract_voices,
+)
 
 # Formats libsndfile handles directly. Everything else (mp3, m4a, opus, webm…)
 # is routed through ffmpeg.
@@ -327,12 +332,16 @@ def run(config_path: Path, audio_override: Path | None = None,
                     frame_hz=float(snap_hz),
                     w_pitch=pitch_net.W,
                 )
-                osc_state["voice_state"] = extract_voices(
+                voice_state = extract_voices(
                     voice_sw,
                     prev_state=osc_state["voice_state"],
                     config=voice_cfg,
                 )
-                osc.send_voices(osc_state["voice_state"])
+                # Phase 2 — per-voice rhythm association. Reads from
+                # the same rolling pitch buffer + current rhythm state.
+                voice_state = extract_voice_rhythms(voice_sw, voice_state)
+                osc_state["voice_state"] = voice_state
+                osc.send_voices(voice_state)
 
             next_snap += snap_interval
 

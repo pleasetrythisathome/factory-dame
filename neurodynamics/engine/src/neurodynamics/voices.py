@@ -59,9 +59,11 @@ from .perceptual import StateWindow
 
 __all__ = [
     "VoiceIdentity",
+    "VoiceRhythm",
     "VoiceState",
     "VoiceClusteringConfig",
     "extract_voices",
+    "extract_voice_rhythms",
 ]
 
 
@@ -81,6 +83,28 @@ _HARMONIC_RATIOS: tuple[tuple[int, int], ...] = (
 
 
 @dataclass(frozen=True)
+class VoiceRhythm:
+    """Rhythm association for a single voice — the rhythm oscillator
+    whose natural frequency best matches the voice's amplitude
+    envelope, with that oscillator's phase at the latest frame.
+
+    This is the Phase 2 primitive: once a voice is identified, find
+    the rhythm GrFNN oscillator that phase-locks to its onset
+    pattern. Each voice gets its own tempo, subdivision, and beat
+    phase — which is what makes the per-voice modular clock use case
+    (bass at half-time while hi-hats run at double) possible.
+    """
+
+    osc_idx: int          # index into the rhythm GrFNN oscillator bank
+    freq: float           # Hz — natural frequency of that oscillator
+    bpm: float            # freq × 60 for convenience
+    phase: float          # radians, (-π, π] — phase of the rhythm
+                          # oscillator at the latest frame in the window
+    confidence: float     # 0-1 — how dominant the matched frequency
+                          # is in the voice's envelope spectrum
+
+
+@dataclass(frozen=True)
 class VoiceIdentity:
     """A single voice cluster with persistent identity across frames.
 
@@ -88,6 +112,10 @@ class VoiceIdentity:
     to hash and to reuse between frames. Construction path is
     exclusively through ``extract_voices`` — consumers don't build
     these directly.
+
+    ``rhythm`` is populated by a separate call to
+    ``extract_voice_rhythms`` (Phase 2) and is ``None`` otherwise so
+    the Phase 1 extractor stays orthogonal.
     """
 
     id: int
@@ -99,6 +127,7 @@ class VoiceIdentity:
     confidence: float               # 0-1, within-cluster envelope coherence
     age_frames: int                 # frames since first appearance
     silent_frames: int              # consecutive frames with active=False
+    rhythm: VoiceRhythm | None = None
 
 
 @dataclass
@@ -471,3 +500,101 @@ def extract_voices(
     new_voices.extend(carried)
 
     return VoiceState(voices=new_voices, next_id=next_id)
+
+
+def extract_voice_rhythms(
+    window: StateWindow,
+    voice_state: VoiceState,
+    *,
+    min_bpm: float = 60.0,
+    max_bpm: float = 240.0,
+) -> VoiceState:
+    """Associate each active voice with its own rhythm.
+
+    For each active voice, compute its amplitude envelope across the
+    window (mean over the voice's pitch oscillators), then find the
+    rhythm oscillator whose natural frequency best matches the
+    envelope's dominant periodicity via DFT.
+
+    Why this is novel for the modular use case: conventional beat
+    trackers output a single tempo for the whole track. Here, each
+    voice gets its own tempo — a bass part at 60 BPM coexists with
+    a hi-hat pattern at 240 BPM as two distinct per-voice clocks,
+    both read off the same oscillator network.
+
+    Implementation note: this reads from the existing rhythm GrFNN
+    state rather than introducing per-voice rhythm networks. The
+    rhythm GrFNN is already entrained to the overall music; we're
+    picking the oscillator from its bank whose frequency matches
+    each voice's envelope. Per-voice rhythm GrFNNs (Phase 3
+    territory) would be a strict upgrade if this proves insufficient.
+
+    Returns a new ``VoiceState`` with each active voice's
+    ``rhythm`` field populated. Silent voices and voices with flat
+    envelopes are left with their existing ``rhythm`` (possibly
+    ``None``).
+    """
+    pitch_z_2d = window.pitch_z_2d
+    rhythm_z_2d = window.rhythm_z_2d
+    rhythm_freqs = window.rhythm_freqs
+    frame_hz = window.frame_hz
+    n_frames = pitch_z_2d.shape[0]
+
+    if n_frames < 8:
+        return voice_state  # not enough envelope samples for a DFT
+
+    min_freq = min_bpm / 60.0
+    max_freq = max_bpm / 60.0
+    eligible_mask = (rhythm_freqs >= min_freq) & (rhythm_freqs <= max_freq)
+    eligible_idx = np.where(eligible_mask)[0]
+    if len(eligible_idx) == 0:
+        return voice_state
+
+    t = np.arange(n_frames) / frame_hz
+    # Precompute the DFT basis once for all voices — each row is a
+    # complex exponential at a rhythm oscillator's frequency.
+    freqs_eligible = rhythm_freqs[eligible_idx]
+    basis = np.exp(-1j * 2 * np.pi * np.outer(freqs_eligible, t)) / n_frames
+    # Rhythm oscillator phases at the final frame — these become
+    # the per-voice beat phase once the voice is bound to an osc.
+    rhythm_phase_last = np.angle(rhythm_z_2d[-1]) if rhythm_z_2d.shape[0] > 0 else np.zeros_like(rhythm_freqs)
+
+    pitch_amps = np.abs(pitch_z_2d)  # (frames, n_pitch)
+
+    new_voices: list[VoiceIdentity] = []
+    for v in voice_state.voices:
+        if not v.active or not v.oscillator_indices:
+            new_voices.append(v)
+            continue
+        osc_idx = list(v.oscillator_indices)
+        env = pitch_amps[:, osc_idx].mean(axis=1)
+        env_mean = float(env.mean())
+        env_std = float(env.std())
+        if env_std < 1e-6 or env_mean <= 0:
+            new_voices.append(v)  # no modulation → no meaningful rhythm
+            continue
+        env_centered = env - env_mean
+        # DFT magnitudes at each eligible rhythm frequency
+        coeffs = basis @ env_centered
+        magnitudes = np.abs(coeffs)
+        if magnitudes.max() <= 0:
+            new_voices.append(v)
+            continue
+        best_local = int(np.argmax(magnitudes))
+        best_global = int(eligible_idx[best_local])
+        peak_mag = float(magnitudes[best_local])
+        mean_mag = float(magnitudes.mean())
+        # Confidence: how much the peak stands above the mean,
+        # normalized to the peak itself.
+        conf = (peak_mag - mean_mag) / peak_mag if peak_mag > 0 else 0.0
+        new_voices.append(replace(
+            v,
+            rhythm=VoiceRhythm(
+                osc_idx=best_global,
+                freq=float(rhythm_freqs[best_global]),
+                bpm=float(rhythm_freqs[best_global] * 60.0),
+                phase=float(rhythm_phase_last[best_global]),
+                confidence=float(max(0.0, min(1.0, conf))),
+            ),
+        ))
+    return VoiceState(voices=new_voices, next_id=voice_state.next_id)

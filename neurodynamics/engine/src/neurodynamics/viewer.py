@@ -126,7 +126,12 @@ from .perceptual import (
     extract_tempo,
 )
 from .run import _NATIVE_EXTS, state_path_for
-from .voices import VoiceClusteringConfig, VoiceState, extract_voices
+from .voices import (
+    VoiceClusteringConfig,
+    VoiceState,
+    extract_voice_rhythms,
+    extract_voices,
+)
 
 WINDOW_S = 12.0       # heatmap time window (±6 s around playhead)
 WATERFALL_N = 30      # number of stacked slices in the waterfall ridges
@@ -938,6 +943,10 @@ def run(config_path: Path, audio_override: Path | None = None,
         )
         voice_state = extract_voices(sw, prev_state=voice_state,
                                       config=voice_cfg)
+        # Phase 2 — per-voice rhythm association. Envelope DFT
+        # against the rhythm oscillator bank; each voice gets its own
+        # tempo, phase, and clock-rate oscillator index.
+        voice_state = extract_voice_rhythms(sw, voice_state)
         # Store lightweight per-frame snapshot for rendering/CSV.
         frame_voices = []
         for v in voice_state.active_voices:
@@ -951,6 +960,14 @@ def run(config_path: Path, audio_override: Path | None = None,
                 "amp": float(v.amp),
                 "confidence": float(v.confidence),
                 "age_frames": int(v.age_frames),
+                "rhythm_bpm": (float(v.rhythm.bpm)
+                               if v.rhythm is not None else None),
+                "rhythm_phase": (float(v.rhythm.phase)
+                                 if v.rhythm is not None else None),
+                "rhythm_freq": (float(v.rhythm.freq)
+                                if v.rhythm is not None else None),
+                "rhythm_confidence": (float(v.rhythm.confidence)
+                                       if v.rhythm is not None else None),
             })
         voices_per_step.append(frame_voices)
     print(f"  precomputed in {time.monotonic() - t_vox_start:.1f}s "
@@ -1109,18 +1126,23 @@ def run(config_path: Path, audio_override: Path | None = None,
         csv_path = out.with_suffix(".features.csv")
         with open(csv_path, "w") as f:
             f.write("t,tonic,mode,chord,bpm,peak_phase,peak_freq,"
-                    "n_companions,consonance,n_voices,voice_ids\n")
+                    "n_companions,consonance,n_voices,voice_ids,"
+                    "voice_bpms\n")
             for i, feat in enumerate(features_per_step):
                 t = i / features_hz_effective
                 voices = voices_per_step[i]
                 ids = "+".join(str(v["id"]) for v in voices) or "-"
+                voice_bpms = "+".join(
+                    f"{v['rhythm_bpm']:.0f}" if v.get("rhythm_bpm") else "?"
+                    for v in voices
+                ) or "-"
                 f.write(
                     f"{t:.3f},{feat['tonic']},{feat['mode']},"
                     f"{feat['chord']},"
                     f"{feat['tempo']:.3f},{feat['peak_phase']:.4f},"
                     f"{feat['peak_freq']:.4f},{feat['n_companions']},"
                     f"{feat['consonance']:.4f},"
-                    f"{len(voices)},{ids}\n"
+                    f"{len(voices)},{ids},{voice_bpms}\n"
                 )
         print(f"Dumped features to {csv_path}")
         return

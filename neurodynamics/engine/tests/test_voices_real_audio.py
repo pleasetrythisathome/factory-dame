@@ -32,6 +32,7 @@ from neurodynamics.perceptual import StateWindow
 from neurodynamics.voices import (
     VoiceClusteringConfig,
     VoiceState,
+    extract_voice_rhythms,
     extract_voices,
 )
 
@@ -64,35 +65,59 @@ def _load_pitch_layer(parquet_path: Path):
     return times, amps, phases, freqs
 
 
+def _load_rhythm_layer(parquet_path: Path):
+    """Return (times, amps, phases, freqs) for the rhythm layer."""
+    t = pq.read_table(parquet_path)
+    layer_col = t.column("layer").to_pylist()
+    mask = [x == "rhythm" for x in layer_col]
+    rhythm = t.filter(mask)
+    times = np.array(rhythm.column("t").to_pylist(), dtype=np.float64)
+    amps = np.array(rhythm.column("amp").to_pylist(), dtype=np.float32)
+    phases = np.array(rhythm.column("phase").to_pylist(), dtype=np.float32)
+    meta = t.schema.metadata or {}
+    freq_str = meta.get(b"layer.rhythm.f", b"").decode()
+    freqs = np.array([float(x) for x in freq_str.split(",") if x])
+    return times, amps, phases, freqs
+
+
 def _extract_voices_over_track(
     parquet_path: Path,
     *,
     window_seconds: float = 2.5,
     feature_hz: float = 5.0,
 ) -> list[list[dict]]:
-    """Run extract_voices over every feature frame in a parquet and
-    return per-frame [{id, osc_indices, center_freq, amp, ...}] lists."""
-    times, amps, phases, freqs = _load_pitch_layer(parquet_path)
-    if len(times) < 2:
+    """Run extract_voices + extract_voice_rhythms over every feature
+    frame in a parquet and return per-frame voice snapshots."""
+    p_times, p_amps, p_phases, p_freqs = _load_pitch_layer(parquet_path)
+    r_times, r_amps, r_phases, r_freqs = _load_rhythm_layer(parquet_path)
+    if len(p_times) < 2:
         return []
-    snap_hz = 1.0 / (times[1] - times[0]) if len(times) > 1 else 60.0
+    # Align pitch and rhythm time series. If they have different
+    # lengths (they usually don't), use whichever is shorter.
+    n = min(len(p_times), len(r_times))
+    p_amps, p_phases = p_amps[:n], p_phases[:n]
+    r_amps, r_phases = r_amps[:n], r_phases[:n]
+    snap_hz = 1.0 / (p_times[1] - p_times[0]) if len(p_times) > 1 else 60.0
     feat_stride = max(1, int(round(snap_hz / feature_hz)))
     feat_half = max(1, int(snap_hz * window_seconds / 2))
     voice_state = VoiceState()
     voices_per_step: list[list[dict]] = []
-    for i in range(0, len(times), feat_stride):
+    for i in range(0, n, feat_stride):
         lo = max(0, i - feat_half)
-        hi = min(len(times), i + feat_half + 1)
-        pitch_z = (amps[lo:hi].astype(np.complex128)
-                   * np.exp(1j * phases[lo:hi].astype(np.complex128)))
+        hi = min(n, i + feat_half + 1)
+        pitch_z = (p_amps[lo:hi].astype(np.complex128)
+                   * np.exp(1j * p_phases[lo:hi].astype(np.complex128)))
+        rhythm_z = (r_amps[lo:hi].astype(np.complex128)
+                    * np.exp(1j * r_phases[lo:hi].astype(np.complex128)))
         sw = StateWindow(
             pitch_z=pitch_z,
-            pitch_freqs=freqs,
-            rhythm_z=np.zeros(1, dtype=np.complex128),
-            rhythm_freqs=np.array([1.0]),
+            pitch_freqs=p_freqs,
+            rhythm_z=rhythm_z,
+            rhythm_freqs=r_freqs,
             frame_hz=float(snap_hz),
         )
         voice_state = extract_voices(sw, prev_state=voice_state)
+        voice_state = extract_voice_rhythms(sw, voice_state)
         voices_per_step.append([
             {
                 "id": int(v.id),
@@ -100,6 +125,10 @@ def _extract_voices_over_track(
                 "center_freq": float(v.center_freq),
                 "amp": float(v.amp),
                 "confidence": float(v.confidence),
+                "rhythm_bpm": (float(v.rhythm.bpm)
+                               if v.rhythm is not None else None),
+                "rhythm_confidence": (float(v.rhythm.confidence)
+                                      if v.rhythm is not None else None),
             }
             for v in voice_state.active_voices
         ])
@@ -182,6 +211,70 @@ def test_voice_count_bounded_below_twenty(slug, track):
     assert max_count <= 20, (
         f"{slug}: max simultaneous voices {max_count} — likely the "
         f"noise floor or correlation threshold is too loose"
+    )
+
+
+@pytest.mark.parametrize("slug,track", _tracklist_ids())
+def test_voice_rhythms_in_musical_bpm_range(slug, track):
+    """Every per-voice rhythm BPM should fall within 30-240 BPM
+    (the musical tempo window). Values outside this range signal
+    that the voice envelope is dominated by non-rhythmic
+    modulation (drift, fades) rather than a beat pattern — or
+    that extract_voice_rhythms is picking the wrong oscillator."""
+    parquet = STATE_DIR / f"{slug}.parquet"
+    if not parquet.exists():
+        pytest.skip(f"{parquet} not present — run rip_corpus")
+    voices_per_step = _extract_voices_over_track(parquet)
+    if not voices_per_step:
+        pytest.skip(f"{slug} parquet has no pitch data")
+    out_of_range = 0
+    total = 0
+    for frame in voices_per_step:
+        for v in frame:
+            if v.get("rhythm_bpm") is None:
+                continue
+            total += 1
+            if not (30.0 <= v["rhythm_bpm"] <= 240.0):
+                out_of_range += 1
+    if total == 0:
+        pytest.skip(f"{slug} had no voice-rhythm assignments")
+    # Allow up to 5% of voices to fall outside musical range
+    # (edge-case envelopes at the min/max of the DFT eligibility
+    # window); the vast majority should be inside it.
+    ratio = out_of_range / total
+    assert ratio < 0.05, (
+        f"{slug}: {out_of_range}/{total} voices with BPM outside "
+        f"[30, 240] ({ratio:.1%})"
+    )
+
+
+@pytest.mark.parametrize("slug,track", _tracklist_ids())
+def test_dominant_voice_rhythm_is_musically_plausible(slug, track):
+    """The highest-amplitude active voice at each frame carries the
+    main musical entity — its rhythm BPM should roughly match
+    conventional beat-tracker expectations. We don't require
+    pinpoint accuracy (NRT may lock to a subdivision or multiple),
+    just that the distribution peaks somewhere in the 50-200 BPM
+    range where human music lives."""
+    parquet = STATE_DIR / f"{slug}.parquet"
+    if not parquet.exists():
+        pytest.skip(f"{parquet} not present — run rip_corpus")
+    voices_per_step = _extract_voices_over_track(parquet)
+    if not voices_per_step:
+        pytest.skip(f"{slug} parquet has no pitch data")
+    dominant_bpms: list[float] = []
+    for frame in voices_per_step:
+        if not frame:
+            continue
+        top = max(frame, key=lambda v: v["amp"])
+        if top.get("rhythm_bpm") is not None:
+            dominant_bpms.append(top["rhythm_bpm"])
+    if not dominant_bpms:
+        pytest.skip(f"{slug} had no dominant-voice rhythm assignments")
+    median = float(np.median(dominant_bpms))
+    assert 50.0 <= median <= 200.0, (
+        f"{slug}: dominant voice median BPM {median:.0f} outside "
+        f"50-200 BPM musical range"
     )
 
 

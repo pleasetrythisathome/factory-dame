@@ -150,6 +150,22 @@ class OSCBroadcaster:
                                      float(v.confidence))
             self.client.send_message(f"{base}/age_frames",
                                      int(v.age_frames))
+            # Per-voice rhythm (Phase 2). The OSC consumer uses the
+            # rhythm osc_idx + phase to generate per-voice triggers;
+            # bpm and freq are convenience fields. When rhythm is
+            # None (voice has no discernible tempo), these messages
+            # are skipped so stale values don't get latched.
+            if v.rhythm is not None:
+                self.client.send_message(f"{base}/rhythm/freq",
+                                         float(v.rhythm.freq))
+                self.client.send_message(f"{base}/rhythm/bpm",
+                                         float(v.rhythm.bpm))
+                self.client.send_message(f"{base}/rhythm/phase",
+                                         float(v.rhythm.phase))
+                self.client.send_message(f"{base}/rhythm/osc_idx",
+                                         int(v.rhythm.osc_idx))
+                self.client.send_message(f"{base}/rhythm/confidence",
+                                         float(v.rhythm.confidence))
         # Signal deactivation for voices that went silent this frame.
         for v in voice_state.voices:
             if not v.active and v.silent_frames == 1:

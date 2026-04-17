@@ -28,7 +28,9 @@ from neurodynamics.perceptual import StateWindow
 from neurodynamics.voices import (
     VoiceClusteringConfig,
     VoiceIdentity,
+    VoiceRhythm,
     VoiceState,
+    extract_voice_rhythms,
     extract_voices,
 )
 
@@ -487,3 +489,188 @@ def test_voice_confidence_high_for_coherent_cluster(base_freqs):
     state = extract_voices(_make_window(z, base_freqs))
     assert len(state.active_voices) == 1
     assert state.active_voices[0].confidence >= 0.9
+
+
+# ── Phase 2: per-voice rhythm association ─────────────────────────
+
+@pytest.fixture
+def rhythm_bank():
+    """Log-spaced rhythm oscillator bank — matches engine default."""
+    return np.geomspace(0.5, 10.0, 50)
+
+
+def _window_with_rhythm(pitch_z: np.ndarray, pitch_freqs: np.ndarray,
+                         rhythm_freqs: np.ndarray, frame_hz: float = 60.0):
+    """Build a StateWindow with both pitch and rhythm state. Rhythm
+    oscillators are placed at their natural frequencies (pure sine) so
+    their phases at the last frame are deterministic."""
+    n_frames = pitch_z.shape[0]
+    t = np.arange(n_frames) / frame_hz
+    rhythm_z = np.zeros((n_frames, len(rhythm_freqs)), dtype=np.complex128)
+    for i, f in enumerate(rhythm_freqs):
+        rhythm_z[:, i] = np.exp(1j * 2 * np.pi * f * t)
+    return StateWindow(
+        pitch_z=pitch_z, pitch_freqs=pitch_freqs,
+        rhythm_z=rhythm_z, rhythm_freqs=rhythm_freqs,
+        frame_hz=frame_hz,
+    )
+
+
+def _voice_with_rhythmic_envelope(pitch_freqs: np.ndarray, center_hz: float,
+                                    envelope_freq_hz: float,
+                                    n_frames: int = 120,
+                                    frame_hz: float = 60.0):
+    """One pitch oscillator modulated by a sinusoidal envelope at
+    ``envelope_freq_hz``. The voice's rhythm should match that
+    frequency."""
+    t = np.arange(n_frames) / frame_hz
+    env = 0.4 + 0.3 * np.sin(2 * np.pi * envelope_freq_hz * t)
+    idx = int(np.argmin(np.abs(pitch_freqs - center_hz)))
+    pitch_z = np.zeros((n_frames, len(pitch_freqs)), dtype=np.complex128)
+    f = pitch_freqs[idx]
+    pitch_z[:, idx] = env * np.exp(1j * 2 * np.pi * f * t)
+    return pitch_z
+
+
+def test_voice_rhythm_at_120_bpm(base_freqs, rhythm_bank):
+    """A voice whose envelope pulses at 2 Hz should report bpm ≈ 120."""
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)
+    state = extract_voices(w)
+    state = extract_voice_rhythms(w, state)
+    assert len(state.active_voices) >= 1
+    v = state.active_voices[0]
+    assert v.rhythm is not None
+    assert 115.0 < v.rhythm.bpm < 125.0
+    assert v.rhythm.confidence > 0.3
+
+
+def test_voice_rhythm_at_180_bpm(base_freqs, rhythm_bank):
+    """3 Hz envelope → 180 BPM."""
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=3.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)
+    state = extract_voices(w)
+    state = extract_voice_rhythms(w, state)
+    v = state.active_voices[0]
+    assert v.rhythm is not None
+    assert 172.0 < v.rhythm.bpm < 188.0
+
+
+def test_voice_rhythm_flat_envelope_stays_none(base_freqs, rhythm_bank):
+    """A voice with no envelope modulation has no rhythm to assign."""
+    n_frames = 120
+    pitch_z = np.zeros((n_frames, len(base_freqs)), dtype=np.complex128)
+    idx = int(np.argmin(np.abs(base_freqs - 440.0)))
+    f = base_freqs[idx]
+    t = np.arange(n_frames) / 60.0
+    # Constant amplitude, zero modulation.
+    pitch_z[:, idx] = 0.5 * np.exp(1j * 2 * np.pi * f * t)
+    # No additive noise on the envelope so the std guard triggers.
+    w = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)
+    state = extract_voices(w)
+    state = extract_voice_rhythms(w, state)
+    v = state.active_voices[0]
+    assert v.rhythm is None
+
+
+def test_voice_rhythm_noise_has_low_confidence(base_freqs, rhythm_bank):
+    """A voice whose envelope is white noise has no concentrated
+    DFT peak, so the rhythm confidence stays well below what a
+    clean sinusoid would produce."""
+    n_frames = 120
+    idx = int(np.argmin(np.abs(base_freqs - 440.0)))
+    f = base_freqs[idx]
+    t = np.arange(n_frames) / 60.0
+    rng = np.random.default_rng(42)
+    env = 0.4 + 0.1 * rng.standard_normal(n_frames)
+    pitch_z = np.zeros((n_frames, len(base_freqs)), dtype=np.complex128)
+    pitch_z[:, idx] = env * np.exp(1j * 2 * np.pi * f * t)
+    w = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)
+    state = extract_voices(w)
+    state = extract_voice_rhythms(w, state)
+    v = state.active_voices[0]
+    if v.rhythm is not None:
+        # Clean 2 Hz sinusoid gives > 0.7 confidence; noise should
+        # stay well under that.
+        assert v.rhythm.confidence < 0.7
+
+
+def test_two_voices_different_tempos(base_freqs, rhythm_bank):
+    """Two voices at different envelope tempos → each gets its own
+    rhythm. This is the core novel property — per-voice tempo."""
+    n_frames = 180
+    t = np.arange(n_frames) / 60.0
+    # Voice A: 100 BPM = 1.67 Hz envelope at 220 Hz fundamental
+    env_a = 0.4 + 0.3 * np.sin(2 * np.pi * 1.67 * t)
+    idx_a = int(np.argmin(np.abs(base_freqs - 220.0)))
+    pitch_z = np.zeros((n_frames, len(base_freqs)), dtype=np.complex128)
+    pitch_z[:, idx_a] = env_a * np.exp(1j * 2 * np.pi * base_freqs[idx_a] * t)
+    # Voice B: 180 BPM = 3.0 Hz envelope at 1100 Hz
+    env_b = 0.3 + 0.25 * np.sin(2 * np.pi * 3.0 * t)
+    idx_b = int(np.argmin(np.abs(base_freqs - 1100.0)))
+    pitch_z[:, idx_b] = env_b * np.exp(1j * 2 * np.pi * base_freqs[idx_b] * t)
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)
+    state = extract_voices(w)
+    state = extract_voice_rhythms(w, state)
+    active = state.active_voices
+    assert len(active) == 2
+    # Each voice should have a rhythm, and the rhythms should differ.
+    for v in active:
+        assert v.rhythm is not None
+    bpms = sorted(v.rhythm.bpm for v in active)
+    # Low-freq voice near 100 BPM, high-freq voice near 180 BPM
+    assert 95.0 < bpms[0] < 110.0
+    assert 172.0 < bpms[1] < 188.0
+
+
+def test_voice_rhythm_phase_tracks_rhythm_oscillator(base_freqs, rhythm_bank):
+    """The reported phase is the rhythm oscillator's phase at the
+    last frame of the window — so it matches what a consumer reading
+    rhythm_z directly would see."""
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)
+    state = extract_voices(w)
+    state = extract_voice_rhythms(w, state)
+    v = state.active_voices[0]
+    assert v.rhythm is not None
+    expected_phase = np.angle(w.rhythm_z_2d[-1, v.rhythm.osc_idx])
+    assert abs(v.rhythm.phase - float(expected_phase)) < 1e-6
+
+
+def test_voice_rhythm_silent_voices_untouched(base_freqs, rhythm_bank):
+    """Silent voices should not have their rhythm modified by a
+    subsequent extract_voice_rhythms call — only active ones
+    participate in the DFT."""
+    pitch_z = _voice_with_rhythmic_envelope(
+        base_freqs, center_hz=440.0, envelope_freq_hz=2.0
+    )
+    pitch_z = _add_noise(pitch_z)
+    w_on = _window_with_rhythm(pitch_z, base_freqs, rhythm_bank)
+    z_off = np.zeros_like(pitch_z)
+    w_off = _window_with_rhythm(z_off, base_freqs, rhythm_bank)
+    # Frame 1: voice active with rhythm
+    state = extract_voices(w_on)
+    state = extract_voice_rhythms(w_on, state)
+    assert state.active_voices[0].rhythm is not None
+    # Frame 2: silent — voice carried forward, not active
+    state = extract_voices(w_off, prev_state=state)
+    # Some silent voices exist but no active ones
+    assert not state.active_voices
+    silent_voices = [v for v in state.voices if not v.active]
+    assert silent_voices
+    original_rhythm = silent_voices[0].rhythm
+    # Apply rhythm extraction to the silent-frame window
+    state = extract_voice_rhythms(w_off, state)
+    silent_voices = [v for v in state.voices if not v.active]
+    # Silent voice's rhythm is preserved from when it was active
+    assert silent_voices[0].rhythm == original_rhythm
