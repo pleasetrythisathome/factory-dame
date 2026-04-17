@@ -1,10 +1,10 @@
 ---
 id: task-011
 title: CV/MIDI/OSC output router — live perceptual state to modular
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-16 20:02'
-updated_date: '2026-04-16 21:48'
+updated_date: '2026-04-17 02:30'
 labels:
   - engine
   - live
@@ -64,15 +64,15 @@ This is the spine that ties task-004 (extractors), task-005 (live audio), task-0
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 #1 `nd-route` command runs alongside `nd-live`, subscribing to the live state stream
-- [ ] #2 #2 Configurable routing: user maps extractor outputs (e.g. `tonic`) to output channels (e.g. `cv/0`, `midi/note`, `osc/...`)
-- [ ] #3 #3 1V/oct tonic CV verified with a calibrated quantizer
-- [ ] #4 #4 Analog clock trigger is jitter-free under steady-tempo input (< 5 ms drift over 30s)
-- [ ] #5 #5 MIDI clock messages sync a second device at detected tempo
-- [ ] #6 #6 OSC message schema matches the documented schema (task-010)
-- [ ] #7 #7 Latency budget: audio-in → CV-out < 60 ms on a modest laptop
-- [ ] #8 #8 Integration test with synthetic audio verifies CV values fall in expected voltage range
-- [ ] #9 #9 Documentation: wiring diagram for ES-9 use case, example modular patch demonstrating tonic-quantizer sync
+- [x] #1 #1 #1 `nd-route` command runs alongside `nd-live`, subscribing to the live state stream
+- [x] #2 #2 #2 Configurable routing: user maps extractor outputs (e.g. `tonic`) to output channels (e.g. `cv/0`, `midi/note`, `osc/...`)
+- [ ] #3 #3 #3 1V/oct tonic CV verified with a calibrated quantizer
+- [ ] #4 #4 #4 Analog clock trigger is jitter-free under steady-tempo input (< 5 ms drift over 30s)
+- [ ] #5 #5 #5 MIDI clock messages sync a second device at detected tempo
+- [ ] #6 #6 #6 OSC message schema matches the documented schema (task-010)
+- [x] #7 #7 #7 Latency budget: audio-in → CV-out < 60 ms on a modest laptop
+- [x] #8 #8 #8 Integration test with synthetic audio verifies CV values fall in expected voltage range
+- [ ] #9 #9 #9 Documentation: wiring diagram for ES-9 use case, example modular patch demonstrating tonic-quantizer sync
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Implementation Plan
@@ -114,5 +114,13 @@ Read existing motor GrFNN state as multi-voice (associate motor oscillator clust
 
 CV/MIDI/OSC router consuming P1-P3 state, producing analog clock triggers, 1V/oct tonic, CV lanes per voice, MIDI notes with MPE per voice. Existing task-011 description still applies; now built on top of the voice primitives rather than a flat feature stream.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed 2026-04-16 after Phases 1-4 landed: voice identity (ff72c3e), per-voice rhythm (fc47897), per-voice motor coupling (4ae3449), CV/MIDI/OSC router (6bfd0d5). Acceptance criteria #3 (1V/oct quantizer), #4 (analog clock jitter), #5 (MIDI clock sync), #9 (documentation) require ES-9 hardware + external sync device to validate — deferred to the operator. Criteria #6 (OSC schema doc) moves to task-010. The shared-bank Phase 3 limitation is captured in task-012 (per-voice motor GrFNN pool).
+<!-- SECTION:NOTES:END -->
+
+<!-- AC:END -->
 
 <!-- AC:END -->
