@@ -392,13 +392,53 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
             artists.append(im_m)
         return tuple(artists)
 
+    # Scrollable Tk canvas so the figure doesn't get clipped when the
+    # window is shorter than the stacked panels. Same pattern as the
+    # offline viewer.
     root = tk.Tk()
     root.title("nd-view-live")
     root.geometry("1200x800")
     root.configure(bg=_PAPER)
-    fig_canvas = FigureCanvasTkAgg(fig, master=root)
+
+    outer = tk.Frame(root, bg=_PAPER)
+    outer.pack(fill="both", expand=True)
+    scroll_canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0,
+                               bg=_PAPER)
+    vscroll = tk.Scrollbar(outer, orient="vertical",
+                            command=scroll_canvas.yview)
+    scroll_canvas.configure(yscrollcommand=vscroll.set)
+    vscroll.pack(side="right", fill="y")
+    scroll_canvas.pack(side="left", fill="both", expand=True)
+
+    inner = tk.Frame(scroll_canvas, bg=_PAPER)
+    inner_id = scroll_canvas.create_window((0, 0), window=inner, anchor="nw")
+
+    fig_canvas = FigureCanvasTkAgg(fig, master=inner)
     fig_canvas.draw()
     fig_canvas.get_tk_widget().pack(fill="both", expand=True)
+
+    def on_inner_configure(_event):
+        scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
+
+    def on_scroll_configure(event):
+        scroll_canvas.itemconfigure(inner_id, width=event.width)
+
+    inner.bind("<Configure>", on_inner_configure)
+    scroll_canvas.bind("<Configure>", on_scroll_configure)
+
+    # Mouse wheel / trackpad scrolling — macOS + Linux + Windows.
+    def on_mousewheel(event):
+        if abs(event.delta) >= 120:
+            step = -int(event.delta / 120)
+        else:
+            step = -int(event.delta) if event.delta else 0
+        scroll_canvas.yview_scroll(step, "units")
+
+    scroll_canvas.bind_all("<MouseWheel>", on_mousewheel)
+    scroll_canvas.bind_all("<Button-4>",
+                            lambda _e: scroll_canvas.yview_scroll(-3, "units"))
+    scroll_canvas.bind_all("<Button-5>",
+                            lambda _e: scroll_canvas.yview_scroll(3, "units"))
 
     anim = FuncAnimation(fig, update, interval=100, blit=True,
                           cache_frame_data=False)
