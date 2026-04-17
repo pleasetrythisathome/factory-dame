@@ -678,20 +678,30 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         segments: list = []
         seg_colors: list = []
         seg_widths: list = []
-        MAX_LW = 5.0  # line width at full voice amp
+        MAX_LW = 5.0                 # line width at global peak
+        AMP_FLOOR = 0.02             # below this → invisible (silence)
         label_targets: list[tuple[int, float, str]] = []
+        # Absolute normalization: find the loudest voice-amp across
+        # the visible window, map that to MAX_LW. Anything ≤ FLOOR
+        # renders as 0-thickness so silent/near-silent voices fade
+        # out rather than staying at a minimum thickness.
+        global_peak = AMP_FLOOR
+        for _, _, amp_hist, _, _ in traces:
+            tail = amp_hist[-show_depth:]
+            if tail.size:
+                p = float(tail.max())
+                if p > global_peak:
+                    global_peak = p
+        scale = MAX_LW / max(global_peak - AMP_FLOOR, 1e-6)
         for vid, state, amp_hist, freq_hist, slot in traces:
             amp = amp_hist[-show_depth:]
             freq = freq_hist[-show_depth:]
             if len(amp) < 2:
                 continue
-            # Per-voice amp normalization: bottom of voice's current
-            # range → 0 thickness, top → MAX_LW. Keeps each voice
-            # visually expressive regardless of absolute loudness.
-            amin = float(amp.min())
-            amax = float(amp.max())
-            rng = max(amax - amin, 1e-6)
-            w = (amp - amin) / rng * MAX_LW
+            # Absolute amp → thickness. Values below AMP_FLOOR clip to
+            # zero so a voice fades from invisible through thin through
+            # thick as its amp pulses.
+            w = np.clip(amp - AMP_FLOOR, 0.0, None) * scale
             # Slot index picks the color — voices occupying the same
             # slot share a color (only one voice per slot at a time,
             # so there's no ambiguity in any given frame).
