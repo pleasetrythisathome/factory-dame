@@ -135,6 +135,14 @@ class LiveEngine:
         self._next_snap = 0
         self._prev_peak_idx: int | None = None
         self._rhythm_drive_residual = 0.0  # carried rhythm drive across chunks
+        # Running-peak normalizer for rhythm drive. Offline mode
+        # normalizes by the whole-track max (one-shot); live can't
+        # see the future, so we use a compressor-style running peak
+        # that grows instantly on a new loud onset and decays slowly.
+        # Decay per chunk: (1 - 1/HALF_LIFE_CHUNKS)^N. With 31
+        # chunks/sec at 16 kHz / 512-block, half_life=150 chunks ≈ 5s.
+        self._rhythm_peak = 0.1  # initial; grows as audio arrives
+        self._rhythm_peak_decay = 0.995
 
         # Voice extraction: rolling 2.5 s pitch buffer (at snapshot rate)
         voice_buf_len = max(int(self.snap_hz * 2.5), 16)
@@ -167,11 +175,16 @@ class LiveEngine:
         prev = np.array([self._rhythm_drive_residual], dtype=np.float32)
         rhythm_drive = np.diff(np.concatenate([prev, rhythm_drive]))
         rhythm_drive = np.maximum(rhythm_drive, 0.0)
-        # Normalize to a dynamic max — in live mode we use a soft
-        # running scale rather than the offline "max across the whole
-        # track" normalization.
-        m = rhythm_drive.max() + 1e-9
-        rhythm_drive = rhythm_drive / m
+        # Running-peak normalization instead of per-chunk. Without
+        # this, quiet chunks get amplified and pump noise into the
+        # rhythm GrFNN; the engine then locks onto random oscillators.
+        # Compressor-style: fast attack on new peaks, slow release.
+        chunk_peak = float(rhythm_drive.max())
+        if chunk_peak > self._rhythm_peak:
+            self._rhythm_peak = chunk_peak
+        else:
+            self._rhythm_peak = self._rhythm_peak * self._rhythm_peak_decay
+        rhythm_drive = rhythm_drive / (self._rhythm_peak + 1e-9)
         self._rhythm_drive_residual = float(env.sum(axis=0)[-1])
 
         # 4. Snapshot-aware stepping. The pitch bank advances at fs;
