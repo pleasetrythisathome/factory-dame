@@ -98,6 +98,14 @@ class LiveStateBuffer:
         self.voice_amp_hist: dict[int, np.ndarray] = {}   # id → (depth,)
         self.voice_last_update: dict[int, int] = {}       # id → sample idx
         self._voice_snap_idx = 0
+        # Slot-based row assignment. Each voice gets a slot when it
+        # first appears and keeps it until retirement — so the voice
+        # always renders in the same row for its lifetime. Without
+        # this the rows reshuffle every time a voice's center freq
+        # drifts (corpus data shows ~0.5 octaves of drift per voice
+        # lifetime, which produced constant jumping under freq sort).
+        self.voice_slot: dict[int, int] = {}  # id → slot index
+        self._free_slots: list[int] = []      # slots freed by retirements
 
     def _push_frame(self, idx: int, layer: str, fields: dict) -> None:
         """Commit a fully-accumulated layer snapshot into the ring."""
@@ -145,14 +153,21 @@ class LiveStateBuffer:
                     self._write_idx = (self._write_idx + 1) % self.buf_depth
                     self._samples_written += 1
 
-    def update_voice_field(self, voice_id: int, field: str, value) -> None:
+    def update_voice_field(self, voice_id: int, field: str, value,
+                             max_slots: int = 8) -> None:
         """Record a /voice/<id>/<field> OSC message. Voice amp drives
         the per-voice sparkline panel; center_freq labels each row;
         active toggles fade when a voice goes silent.
 
         Each active voice generates amp messages at ~20 Hz while
         alive, so a 240-sample depth at that rate holds ~12 s of
-        history — matching the heatmap window."""
+        history — matching the heatmap window.
+
+        ``max_slots`` bounds the number of voices that land in the
+        per-voice panel. Slots are assigned persistently on first
+        appearance; a voice that arrives when all slots are full
+        doesn't get a panel row (but is still tracked in buffer
+        state for the banner count + pitch-tick coloring)."""
         with self._lock:
             self._voice_snap_idx += 1
             self.voice_last_update[voice_id] = self._voice_snap_idx
@@ -169,11 +184,16 @@ class LiveStateBuffer:
                     self.voice_amp_hist[voice_id] = hist
                 hist[:-1] = hist[1:]
                 hist[-1] = float(value)
+        # Slot assignment happens outside the inner lock section so
+        # assign_voice_slot can take its own lock without reentry.
+        if voice_id not in self.voice_slot:
+            self.assign_voice_slot(voice_id, max_slots)
 
     def prune_stale_voices(self, stale_after: int = 300) -> None:
         """Drop voices that haven't had an update in ``stale_after``
         buffer advances (≈ 5 s at 60 Hz). Called from the animation
-        so the panel doesn't clog with retired voices."""
+        so the panel doesn't clog with retired voices. Freed slots
+        become available for new voices."""
         with self._lock:
             cutoff = self._voice_snap_idx - stale_after
             stale = [
@@ -184,20 +204,53 @@ class LiveStateBuffer:
                 self.voice_state.pop(vid, None)
                 self.voice_amp_hist.pop(vid, None)
                 self.voice_last_update.pop(vid, None)
+                slot = self.voice_slot.pop(vid, None)
+                if slot is not None:
+                    # Return the slot to the free pool so the next
+                    # new voice reuses it.
+                    if slot not in self._free_slots:
+                        self._free_slots.append(slot)
+                    self._free_slots.sort()
 
-    def active_voice_rows(self, limit: int) -> list[tuple[int, dict, np.ndarray]]:
-        """Return up to ``limit`` currently-tracked voices as
-        (voice_id, state_dict, amp_history) tuples, sorted by
-        center_freq ascending so low→high reads naturally."""
+    def assign_voice_slot(self, voice_id: int, max_slots: int) -> int | None:
+        """Return the slot assigned to this voice (creating one if
+        needed). Returns None if all slots are full and this voice
+        is too late to the party — caller can either drop it or
+        evict someone."""
+        with self._lock:
+            if voice_id in self.voice_slot:
+                return self.voice_slot[voice_id]
+            used = set(self.voice_slot.values())
+            # Prefer the lowest free slot so the panel fills top-down.
+            for candidate in range(max_slots):
+                if candidate not in used:
+                    self.voice_slot[voice_id] = candidate
+                    if candidate in self._free_slots:
+                        self._free_slots.remove(candidate)
+                    return candidate
+            # All slots taken. Caller decides what to do.
+            return None
+
+    def active_voice_rows(self, limit: int) -> list[tuple[int, dict, np.ndarray, int]]:
+        """Return currently-tracked voices as
+        ``(voice_id, state, amp_history, slot)`` tuples.
+
+        Each voice carries its assigned slot so the caller can place
+        it consistently across frames. Voices without a slot (panel
+        full when they appeared) are omitted so the visible rows
+        stay stable for the voices that DID get a slot."""
         with self._lock:
             items = []
             for vid, state in self.voice_state.items():
                 hist = self.voice_amp_hist.get(vid)
                 if hist is None:
                     continue
-                items.append((vid, dict(state), hist.copy()))
-            items.sort(key=lambda x: x[1].get("center_freq", 0.0))
-            return items[:limit]
+                slot = self.voice_slot.get(vid)
+                if slot is None or slot >= limit:
+                    continue
+                items.append((vid, dict(state), hist.copy(), slot))
+            items.sort(key=lambda x: x[3])  # by slot ascending
+            return items
 
     def latest(self, depth: int) -> dict:
         """Return a dict of (depth, n_osc) tails for every buffer.
@@ -608,12 +661,17 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         )
 
         # Per-voice sparklines. Stale voices (no recent /voice/<id>
-        # updates) are dropped so the panel doesn't fossilize.
+        # updates) are dropped and their slots freed.
         buffer.prune_stale_voices(stale_after=300)
         rows = buffer.active_voice_rows(VOICE_ROWS)
-        # Compute a shared amp scale so spikes don't visually dominate.
+        # Index rows by slot so we can leave empty rows blank.
+        by_slot: dict[int, tuple] = {slot: (vid, state, hist)
+                                       for (vid, state, hist, slot)
+                                       in rows}
+        # Shared amp scale — keeps a quiet voice visible alongside a
+        # loud one without the loud one dominating.
         max_amp = 0.0
-        for _, _, hist in rows:
+        for _, _, hist in by_slot.values():
             if len(hist):
                 m = float(hist.max())
                 if m > max_amp:
@@ -624,15 +682,14 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
             ln = voice_lines_v[slot]
             fill = voice_fills_v[slot]
             label = voice_labels_v[slot]
-            # Remove previous fill polygon and clear line/label.
             try:
                 fill.remove()
             except Exception:
                 pass
-            if slot < len(rows):
-                vid, state, hist = rows[slot]
+            entry = by_slot.get(slot)
+            if entry is not None:
+                vid, state, hist = entry
                 color = _VOICE_PALETTE[vid % len(_VOICE_PALETTE)]
-                # Map amp [0, max_amp] → vertical offset inside row.
                 normalized = np.clip(hist / max_amp, 0.0, 1.0) * 0.42
                 y = slot + 0.3 - normalized
                 ln.set_data(x_axis, y)
