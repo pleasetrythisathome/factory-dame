@@ -26,6 +26,7 @@ dev = [
 nd-run = "neurodynamics.run:main"
 nd-view = "neurodynamics.viewer:main"
 nd-route = "neurodynamics.router:main"
+nd-live = "neurodynamics.live:main"
 
 [build-system]
 requires = ["hatchling"]
