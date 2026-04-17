@@ -70,6 +70,16 @@ def _build_grfnn(section: dict) -> GrFNN:
     hb = section.get("hebbian", {})
     dl = section.get("delay", {})
     nz = section.get("noise", {})
+    tn = section.get("tuning", {})
+    freqs = None
+    if tn:
+        from .tuning import twelve_tet_freqs
+        freqs = twelve_tet_freqs(
+            low_hz=section["low_hz"],
+            high_hz=section["high_hz"],
+            a4_hz=float(tn.get("a4_hz", 440.0)),
+            bins_per_semitone=int(tn.get("bins_per_semitone", 3)),
+        )
     return GrFNN(
         n_oscillators=section["n_oscillators"],
         low_hz=section["low_hz"],
@@ -83,6 +93,7 @@ def _build_grfnn(section: dict) -> GrFNN:
         delay_gain=float(dl.get("gain", 0.0)),
         noise_amp=float(nz.get("amp", 0.0)),
         noise_seed=int(nz.get("seed", 0)),
+        freqs=freqs,
     )
 
 

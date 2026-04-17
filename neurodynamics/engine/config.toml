@@ -84,9 +84,14 @@ forward_gain = 0.1
 backward_gain = 0.03
 
 [pitch_grfnn]
-n_oscillators = 100
-low_hz = 30.0
-high_hz = 4000.0
+# n_oscillators is ignored when [pitch_grfnn.tuning] is set — the grid
+# is derived from low_hz, high_hz, and bins_per_semitone to land on
+# 12-TET note frequencies. With defaults below: 20 Hz (audibility
+# floor + sub-bass + phantom/subharmonic region) to C8 (4186 Hz) at
+# 3 bins/semitone ≈ 278 bins.
+n_oscillators = 278
+low_hz = 20.0
+high_hz = 4186.0
 dt = 0.0000625   # 16 kHz rate
 alpha = -0.05
 beta1 = -1.0
@@ -99,6 +104,14 @@ epsilon = 1.0
 # amplitudes on the order of the source audio amplitude. 0.1 reaches healthy
 # |z| without saturating on typical mastered material.
 input_gain = 0.1
+
+[pitch_grfnn.tuning]
+# 12-TET grid aligned to A4 = 440 Hz with 3 bins per semitone (33 cent
+# spacing). Harmonics land on integer bin offsets (2f = +36, 3f ≈ +57,
+# 4f = +72 bins), so the harmonic-ratio boost in voices.py sees exact
+# alignment. Set a4_hz to 432, 415, etc. for pieces tuned off-reference.
+a4_hz = 440.0
+bins_per_semitone = 3
 
 [pitch_grfnn.hebbian]
 # Attunement: weights between co-active pitch oscillators reveal implied

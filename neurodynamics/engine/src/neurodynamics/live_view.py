@@ -360,10 +360,20 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
     with open(config_path, "rb") as f:
         cfg = tomllib.load(f)
     snap_hz = int(cfg["state_log"]["snapshot_hz"])
-    pf = np.geomspace(
-        cfg["pitch_grfnn"]["low_hz"], cfg["pitch_grfnn"]["high_hz"],
-        int(cfg["pitch_grfnn"]["n_oscillators"]),
-    )
+    p_tn = cfg["pitch_grfnn"].get("tuning", {})
+    if p_tn:
+        from .tuning import twelve_tet_freqs
+        pf = twelve_tet_freqs(
+            low_hz=cfg["pitch_grfnn"]["low_hz"],
+            high_hz=cfg["pitch_grfnn"]["high_hz"],
+            a4_hz=float(p_tn.get("a4_hz", 440.0)),
+            bins_per_semitone=int(p_tn.get("bins_per_semitone", 3)),
+        )
+    else:
+        pf = np.geomspace(
+            cfg["pitch_grfnn"]["low_hz"], cfg["pitch_grfnn"]["high_hz"],
+            int(cfg["pitch_grfnn"]["n_oscillators"]),
+        )
     rf = np.geomspace(
         cfg["rhythm_grfnn"]["low_hz"], cfg["rhythm_grfnn"]["high_hz"],
         int(cfg["rhythm_grfnn"]["n_oscillators"]),

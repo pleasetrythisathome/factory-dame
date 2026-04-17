@@ -313,11 +313,21 @@ class GrFNN:
         delay_gain: float = 0.0,
         noise_amp: float = 0.0,
         noise_seed: int = 0,
+        freqs: np.ndarray | None = None,
     ):
+        # When ``freqs`` is provided, it fully determines the oscillator
+        # layout — the pitch bank passes a 12-TET-aligned grid here so
+        # named notes land on bins. ``n_oscillators``/``low_hz``/
+        # ``high_hz`` are ignored in that case. Other banks (rhythm,
+        # motor) still use the log-uniform default via geomspace.
+        if freqs is not None:
+            self.f = np.asarray(freqs, dtype=np.float64).copy()
+            n_oscillators = int(self.f.size)
+        else:
+            self.f = np.geomspace(low_hz, high_hz, n_oscillators).astype(np.float64)
         self.n = n_oscillators
         self.dt = dt
         self.p = params
-        self.f = np.geomspace(low_hz, high_hz, n_oscillators).astype(np.float64)
         self.omega = 2 * np.pi * self.f
         # Preallocated RK4 scratch buffers — avoid a fresh heap
         # allocation on every audio-rate step.
