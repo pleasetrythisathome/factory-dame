@@ -1,9 +1,10 @@
 ---
 id: task-004
 title: Perceptual feature extractors
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-04-16 17:52'
+updated_date: '2026-04-17 02:17'
 labels:
   - engine
   - features
@@ -28,9 +29,15 @@ Design as a state-slice-agnostic module so it works on both offline parquet read
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 New neurodynamics.perceptual module
-- [ ] #2 Each extractor takes a state slice, returns a scalar or dict
-- [ ] #3 Unit tests with synthetic audio of known key/tempo/etc.
-- [ ] #4 Viewer shows text overlays: key, tempo, consonance bar
-- [ ] #5 Results emitted over OSC too (e.g. /features/key, /features/tempo)
+- [x] #1 New neurodynamics.perceptual module
+- [x] #2 Each extractor takes a state slice, returns a scalar or dict
+- [x] #3 Unit tests with synthetic audio of known key/tempo/etc.
+- [x] #4 Viewer shows text overlays: key, tempo, consonance bar
+- [x] #5 Results emitted over OSC too (e.g. /features/key, /features/tempo)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Closed 2026-04-16. Tier A (key + tempo + consonance) and the chord portion of Tier B landed in commits ff72c3e, fc47897. Meter detection and groove index from Tier B/C deferred to dedicated tickets (task-012 meter, task-013 groove).
+<!-- SECTION:NOTES:END -->
