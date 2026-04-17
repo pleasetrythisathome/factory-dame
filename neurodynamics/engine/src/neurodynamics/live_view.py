@@ -531,7 +531,11 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
     scroll_canvas.bind_all("<Button-5>",
                             lambda _e: scroll_canvas.yview_scroll(3, "units"))
 
-    anim = FuncAnimation(fig, update, interval=100, blit=True,
+    # 60 fps target (interval=16 ms). Blit keeps per-frame cost small
+    # — only animated artists repaint each tick — and an M-series
+    # machine has headroom to spare. Drop toward 33 ms if the render
+    # loop starts chewing CPU.
+    anim = FuncAnimation(fig, update, interval=16, blit=True,
                           cache_frame_data=False)
 
     def on_close():
