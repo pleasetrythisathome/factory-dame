@@ -175,13 +175,19 @@ class VoiceState:
 
 @dataclass(frozen=True)
 class VoiceClusteringConfig:
-    """Tunable parameters for voice clustering. Defaults are chosen to
-    work on mastered audio (pitch amplitudes peaking ~0.3-0.6 on the
-    NRT Hopf limit cycle); tweak for other signal regimes."""
+    """Tunable parameters for voice clustering.
 
-    # Oscillator activity gating
-    noise_floor: float = 0.02
-    active_fraction: float = 0.08   # fraction of peak amplitude to count as active
+    Defaults assume the cleaned-up pitch GrFNN (noise.amp=0, input_gain=0.5)
+    where silent baseline is ~0.003 and real signals drive the bank to
+    0.01-0.15 depending on intensity. Gate at 0.005 keeps silence out while
+    admitting clean synth content; the ``active_fraction`` term kicks in
+    for stronger signals so only the dominant bins per frame count."""
+
+    # Oscillator activity gating. A bin is active if its mean window
+    # amplitude is above BOTH the absolute floor and a fraction of the
+    # per-frame peak.
+    noise_floor: float = 0.005
+    active_fraction: float = 0.25   # fraction of peak amplitude to count as active
 
     # Correlation clustering
     correlation_threshold: float = 0.6

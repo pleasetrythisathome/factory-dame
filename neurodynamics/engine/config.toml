@@ -99,11 +99,14 @@ beta2 = -1.0
 delta1 = 0.0
 delta2 = 0.0
 epsilon = 1.0
-# Pitch input is a (dense) band-limited audio signal. With the FIR gammatone
-# front-end normalized to |H(fc)|=1, a well-driven channel produces band
-# amplitudes on the order of the source audio amplitude. 0.1 reaches healthy
-# |z| without saturating on typical mastered material.
-input_gain = 0.1
+# Pitch input is a (dense) band-limited audio signal. Raised from 0.1 → 0.5
+# after diagnostic showed clean signals produced only ~0.003 peak amp — well
+# below the extraction noise floor. With gain=0.5 and noise.amp=0 (below), a
+# pure 440 Hz sine produces amp ~0.017 at the correct bin, 50× above the
+# silent baseline (vs 4× in the old config), so voice clustering has real
+# SNR to work with. Real music still stays comfortably below the 0.22 Hopf
+# limit-cycle saturation.
+input_gain = 0.5
 
 [pitch_grfnn.tuning]
 # 12-TET grid aligned to A4 = 440 Hz with 3 bins per semitone (33 cent
@@ -127,7 +130,12 @@ tau = 0.0
 gain = 0.0
 
 [pitch_grfnn.noise]
-amp = 0.01
+# Zeroed after diagnostic: with α=-0.05 (lightly damped, 20-second decay
+# time), noise.amp=0.01 accumulated into a steady ~0.03 "noise floor" on
+# every oscillator — the bank self-resonated in silence at 183/279 bins
+# above 0.01. That drowned real signal. Zeroed here; if phantom dynamics
+# need symmetry-breaking, re-introduce at 1e-4 or lower after testing.
+amp = 0.0
 seed = 1
 
 [phantom]
