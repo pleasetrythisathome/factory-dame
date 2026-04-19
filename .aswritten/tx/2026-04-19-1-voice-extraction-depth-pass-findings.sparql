@@ -1,0 +1,100 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa: <http://www.w3.org/ns/oa#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+INSERT DATA {
+  narr:Tx_20250514T140000Z a prov:Activity ;
+    prov:generatedAtTime "2025-05-14T14:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-04-19-voice-extraction-depth-pass.md" ;
+    narr:originRef "feat/voice-extraction-depth-pass" ;
+    prov:generated narr:Sample_VoiceExtractionDepthPass_20260419, narr:Narrative_VoiceExtractionArchitectureValidation, narr:Claim_VoiceExtractionArchitectureValidated, narr:Claim_NoiseFloorSignalDrowning, narr:Claim_FlatRowClusteringBug, narr:Claim_OvertoneGroundTruthSuperior, narr:Claim_LiveModePerformanceRegained, narr:StyleObservation_TechnicalDiagnostic, narr:StyleObservation_CausalAnalysis, narr:StyleObservation_MetaphoricalLabeling, narr:StyleMetrics_VoiceExtractionDepthPass .
+} ;
+
+INSERT DATA {
+  GRAPH narr:Tx_20250514T140000Z {
+    narr:Sample_VoiceExtractionDepthPass_20260419 a narr:Sample ;
+      dct:title "Voice extraction depth pass — findings (2026-04-19)" ;
+      dct:created "2026-04-19"^^xsd:date ;
+      narr:inputLength 4850 .
+
+    narr:Narrative_VoiceExtractionArchitectureValidation a narr:Narrative ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      narr:theme "Validation and refinement of the voice extraction architecture through deep-first testing" ;
+      skos:broader narr:TechnicalExplainers ;
+      skos:note "The architecture survived a deep-first pass, identifying and fixing three 'silent killers' of signal and a major clustering bug while transitioning to Overtone for ground truth." .
+
+    narr:Claim_VoiceExtractionArchitectureValidated a narr:Claim ;
+      narr:aboutNode narr:Narrative_VoiceExtractionArchitectureValidation ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      skos:note "The current envelope-correlation + Hungarian-matching voice extractor survived the pass. It correctly identifies single voices, chords, and multiple simultaneous voices." .
+
+    narr:Claim_NoiseFloorSignalDrowning a narr:Claim ;
+      narr:aboutNode narr:Narrative_VoiceExtractionArchitectureValidation ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      skos:note "Three coupled issues (noise amp, zero-init, and thresholds) were causing the engine to oscillate spontaneously, drowning real signal in engine-generated noise." .
+
+    narr:Claim_FlatRowClusteringBug a narr:Claim ;
+      narr:aboutNode narr:Narrative_VoiceExtractionArchitectureValidation ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      skos:note "A deterministic-ramp hack caused all flat signal rows to correlate perfectly, collapsing harmonics and noise into single low-frequency clusters." .
+
+    narr:Claim_OvertoneGroundTruthSuperior a narr:Claim ;
+      narr:aboutNode narr:Narrative_VoiceExtractionArchitectureValidation ;
+      narr:hasConvictionLevel narr:Conviction_Boulder ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      skos:note "Overtone is superior to VCV Rack for ground-truth testing because it allows full introspection and programmatic control, surfacing bugs the VCV path masked." .
+
+    narr:Claim_LiveModePerformanceRegained a narr:Claim ;
+      narr:aboutNode narr:Narrative_LiveNRTModularBridge ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      skos:note "Vectorization of consonance extraction and dropping OSC emission to 30fps restored live performance from 0.63x to 1.11x realtime." .
+
+    narr:StyleObservation_TechnicalDiagnostic a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_VoiceExtractionDepthPass_20260419 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 1010 ; oa:end 1150 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "Evidence: pure digital silence produced peak amp 0.056 with 183/279 oscillators above 0.01." ; oa:prefix "all the time, drowning real signal. " ; oa:suffix " Fix: [pitch_grfnn.noise] amp = 0.0." ]
+      ] .
+
+    narr:StyleObservation_CausalAnalysis a narr:StyleObservation ;
+      skos:broader narr:FocusSequencing ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_VoiceExtractionDepthPass_20260419 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 780 ; oa:end 850 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "Three coupled issues, all upstream of voice clustering, all conspiring to drown real signal" ; oa:prefix "coverage before this pass. " ; oa:suffix " in engine-generated noise" ]
+      ] .
+
+    narr:StyleObservation_MetaphoricalLabeling a narr:StyleObservation ;
+      skos:broader narr:Metaphor ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_VoiceExtractionDepthPass_20260419 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 720 ; oa:end 765 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; oa:exact "The three silent killers that were drowning signal" ; oa:prefix "## " ; oa:suffix "\n\nVoice extraction on clean synth" ]
+      ] .
+
+    narr:StyleMetrics_VoiceExtractionDepthPass a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_VoiceExtractionDepthPass_20260419 ;
+      narr:AverageSentenceLength 18 ;
+      narr:ActiveVoiceRatio 0.78 ;
+      narr:JargonDensity 0.25 ;
+      skos:note "Highly technical diagnostic register. Uses 'Evidence/Fix' pattern for troubleshooting. High density of DSP and programming jargon (Hopf, 12-TET, vectorization, OSC, REPL)." .
+  }
+}
