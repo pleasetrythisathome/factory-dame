@@ -290,3 +290,163 @@ def test_cv_mock_records_writes():
     assert cv._voltages[0] == pytest.approx(1.0)
     assert cv._voltages[2] == pytest.approx(-0.5)
     assert cv._writes == [(0, 1.0), (2, -0.5)]  # channel 5 not recorded
+
+
+# ── Hz → 1V/oct + gate scale functions ───────────────────────────
+
+from neurodynamics.router import (
+    scale_hz_to_1v_per_oct, scale_active_as_gate,
+)
+
+
+def test_hz_1v_per_oct_c4_is_zero():
+    """The default anchor is C4 (261.63 Hz) = 0 V, matching the
+    Eurorack standard and our Overtone/VCV CV encoding."""
+    assert scale_hz_to_1v_per_oct(261.6256) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_hz_1v_per_oct_a4_is_0_75():
+    assert scale_hz_to_1v_per_oct(440.0) == pytest.approx(0.75, abs=1e-3)
+
+
+def test_hz_1v_per_oct_c2_is_negative():
+    """Sub-C4 notes produce negative voltages. DC-coupled outs accept
+    ±5–10 V; VCV and most Eurorack VCOs track fine."""
+    c2 = scale_hz_to_1v_per_oct(65.4064)
+    assert c2 == pytest.approx(-2.0, abs=1e-3)
+
+
+def test_hz_1v_per_oct_handles_nonpositive():
+    assert scale_hz_to_1v_per_oct(0.0) == 0.0
+    assert scale_hz_to_1v_per_oct(-5.0) == 0.0
+
+
+def test_hz_1v_per_oct_alternate_anchor():
+    """Callers can anchor to A4 if they prefer."""
+    assert scale_hz_to_1v_per_oct(440.0, ref_hz=440.0) == pytest.approx(0.0)
+    assert scale_hz_to_1v_per_oct(880.0, ref_hz=440.0) == pytest.approx(1.0)
+
+
+def test_active_as_gate():
+    assert scale_active_as_gate(1) == 5.0
+    assert scale_active_as_gate(0) == 0.0
+    assert scale_active_as_gate(0.0) == 0.0
+    assert scale_active_as_gate(0.51) == 5.0
+
+
+def test_active_as_gate_custom_levels():
+    assert scale_active_as_gate(1, on_v=8.0) == 8.0
+
+
+# ── Per-voice routing round-trip ─────────────────────────────────
+#
+# Simulates the OSC messages a live engine emits for a voice cluster,
+# and verifies that with voice-style mappings configured, the router
+# produces the correct CV voltages for 1V/oct pitch + gate channels.
+# This is the end-to-end test of the "engine voice → modular CV"
+# pipeline that task-011 Phase 4 was scoped for.
+
+
+def test_voice_center_freq_routed_to_cv_1v_per_oct():
+    """Engine emits /voice/0/center_freq 440.0 (A4). With mapping
+    /voice/0/center_freq → cv/0 (hz_1V_per_oct), the CV backend
+    should land at +0.75 V (A4 above C4 anchor)."""
+    cfg = RouterConfig(
+        cv_enabled=False,   # we supply the mock below
+        osc_listen_host="127.0.0.1",
+        osc_listen_port=0,  # ephemeral port
+        mappings=[
+            Mapping(source="/voice/0/center_freq",
+                    output="cv/0", scale="hz_1V_per_oct"),
+        ],
+    )
+    cv = CVBackend(device=None, channels=4, sample_rate=48000, mock=True)
+    r = Router(cfg, cv=cv, start_server=False)
+    try:
+        r._on_osc_message("/voice/0/center_freq", 440.0)
+        assert cv._voltages[0] == pytest.approx(0.75, abs=1e-3)
+    finally:
+        r.close()
+
+
+def test_voice_active_routed_to_gate():
+    """Engine emits /voice/0/active 1 → cv/1 should be 5 V (gate
+    high); subsequent /voice/0/active 0 → cv/1 should be 0 V."""
+    cfg = RouterConfig(
+        osc_listen_port=0,
+        mappings=[
+            Mapping(source="/voice/0/active",
+                    output="cv/1", scale="gate_5V"),
+        ],
+    )
+    cv = CVBackend(device=None, channels=4, sample_rate=48000, mock=True)
+    r = Router(cfg, cv=cv, start_server=False)
+    try:
+        r._on_osc_message("/voice/0/active", 1)
+        assert cv._voltages[1] == pytest.approx(5.0)
+        r._on_osc_message("/voice/0/active", 0)
+        assert cv._voltages[1] == pytest.approx(0.0)
+    finally:
+        r.close()
+
+
+def test_multi_voice_routing_four_slots():
+    """Four voices, each routed to its own pitch CV + gate CV pair
+    (channels 0/1 for voice 0, 2/3 for voice 1, 4/5 for voice 2,
+    6/7 for voice 3). Simulates a 4-voice modular polysynth."""
+    mappings = []
+    for i in range(4):
+        mappings.append(Mapping(
+            source=f"/voice/{i}/center_freq",
+            output=f"cv/{2 * i}", scale="hz_1V_per_oct",
+        ))
+        mappings.append(Mapping(
+            source=f"/voice/{i}/active",
+            output=f"cv/{2 * i + 1}", scale="gate_5V",
+        ))
+    cfg = RouterConfig(osc_listen_port=0, mappings=mappings)
+    cv = CVBackend(device=None, channels=8, sample_rate=48000, mock=True)
+    r = Router(cfg, cv=cv, start_server=False)
+    try:
+        # 4 voices: C4, E4, G4, A4. All active.
+        for i, freq in enumerate([261.63, 329.63, 392.0, 440.0]):
+            r._on_osc_message(f"/voice/{i}/active", 1)
+            r._on_osc_message(f"/voice/{i}/center_freq", freq)
+        assert cv._voltages[0] == pytest.approx(0.0, abs=1e-3)   # C4
+        assert cv._voltages[2] == pytest.approx(0.333, abs=1e-3) # E4
+        assert cv._voltages[4] == pytest.approx(0.583, abs=1e-3) # G4
+        assert cv._voltages[6] == pytest.approx(0.75, abs=1e-3)  # A4
+        for gate_ch in (1, 3, 5, 7):
+            assert cv._voltages[gate_ch] == pytest.approx(5.0)
+        # Voice 2 goes silent.
+        r._on_osc_message("/voice/2/active", 0)
+        assert cv._voltages[5] == pytest.approx(0.0)
+    finally:
+        r.close()
+
+
+def test_voice_pitch_tracks_sliding_freq():
+    """A voice whose center_freq drifts (glissando) → CV tracks the
+    drift continuously. The CV backend's per-channel voltage is
+    updated on every OSC message, so the effective output is the
+    latest value."""
+    cfg = RouterConfig(
+        osc_listen_port=0,
+        mappings=[Mapping(source="/voice/0/center_freq",
+                          output="cv/0", scale="hz_1V_per_oct")],
+    )
+    cv = CVBackend(device=None, channels=2, sample_rate=48000, mock=True)
+    r = Router(cfg, cv=cv, start_server=False)
+    try:
+        # Sweep 220 Hz → 880 Hz (one octave up)
+        freqs = [220.0, 311.13, 440.0, 622.25, 880.0]
+        expected = [-0.25, -0.0833 + -0.5833, 0.75, 1.25, 1.75]  # log2 from C4
+        for f in freqs:
+            r._on_osc_message("/voice/0/center_freq", f)
+        # Last value = 880 Hz → 1.75 V (log2(880/261.63) = 1.748)
+        assert cv._voltages[0] == pytest.approx(1.748, abs=1e-2)
+        # CV writes captured in order — voltages were monotonic up
+        written = [v for ch, v in cv._writes if ch == 0]
+        assert written == sorted(written)
+    finally:
+        r.close()

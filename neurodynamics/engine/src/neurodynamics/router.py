@@ -60,8 +60,10 @@ __all__ = [
     "MIDIBackend",
     "OSCForwardBackend",
     "scale_tonic_to_1v_per_oct",
+    "scale_hz_to_1v_per_oct",
     "scale_phase_to_sawtooth",
     "scale_unit_to_5v",
+    "scale_active_as_gate",
     "phase_wrapped",
 ]
 
@@ -105,6 +107,27 @@ def scale_phase_to_sawtooth(phase_rad: float, v_min: float = 0.0,
 def scale_unit_to_5v(unit: float) -> float:
     """Map a [0, 1] scalar to a [0, 5] V signal, clipped."""
     return float(max(0.0, min(5.0, unit * 5.0)))
+
+
+def scale_hz_to_1v_per_oct(hz: float, ref_hz: float = 261.6256) -> float:
+    """Map a frequency in Hz to a 1V/oct voltage, anchored at
+    ``ref_hz`` = 0 V. Default anchor is C4 (261.63 Hz), matching the
+    VCV/Eurorack convention. Useful for routing voice.center_freq
+    directly to a VCO's V/OCT input.
+
+    Negative voltages for notes below the anchor (fine — Eurorack
+    VCOs and DC-coupled audio interfaces handle ±5-10 V). Returns
+    0.0 for non-positive ``hz`` to avoid log domain errors."""
+    if hz <= 0 or ref_hz <= 0:
+        return 0.0
+    return float(np.log2(hz / ref_hz))
+
+
+def scale_active_as_gate(active: float, on_v: float = 5.0,
+                          off_v: float = 0.0) -> float:
+    """Map a boolean-like value (0 or 1) to a gate voltage. Used for
+    voice on/off signals that need to drive an ADSR gate."""
+    return float(on_v if active > 0.5 else off_v)
 
 
 def phase_wrapped(current_phase: float, prev_phase: float) -> bool:
@@ -366,10 +389,34 @@ def _scale_passthrough(args: tuple) -> float | None:
         return None
 
 
+def _scale_hz_1v_per_oct(args: tuple) -> float | None:
+    """args = (hz_float,) → volts. Used for /voice/*/center_freq
+    routed to a V/OCT CV channel."""
+    if not args:
+        return None
+    try:
+        return scale_hz_to_1v_per_oct(float(args[0]))
+    except (TypeError, ValueError):
+        return None
+
+
+def _scale_gate_5v(args: tuple) -> float | None:
+    """args = (active_0_or_1,) → 5 V or 0 V. Used for
+    /voice/*/active routed to a gate CV channel."""
+    if not args:
+        return None
+    try:
+        return scale_active_as_gate(float(args[0]))
+    except (TypeError, ValueError):
+        return None
+
+
 _SCALE_REGISTRY: dict[str, ScaleFn] = {
     "1V_per_oct": _scale_1v_per_oct,
+    "hz_1V_per_oct": _scale_hz_1v_per_oct,
     "sawtooth_0_5V": _scale_sawtooth_0_5V,
     "unit_0_5V": _scale_unit_0_5V,
+    "gate_5V": _scale_gate_5v,
     "passthrough": _scale_passthrough,
 }
 
