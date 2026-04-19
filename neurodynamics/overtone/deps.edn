@@ -1,0 +1,11 @@
+{:paths ["src" "resources"]
+ :deps  {org.clojure/clojure       {:mvn/version "1.12.0"}
+         overtone/overtone         {:mvn/version "0.16.3331"}
+         cheshire/cheshire         {:mvn/version "5.13.0"}}
+
+ :aliases
+ {:render {:main-opts ["-m" "neurodynamics.render"]}
+  :live   {:main-opts ["-m" "neurodynamics.live"]}
+  :nrepl  {:extra-deps {nrepl/nrepl {:mvn/version "1.3.0"}}
+           :main-opts ["-m" "nrepl.cmdline"
+                       "--port" "0"]}}}

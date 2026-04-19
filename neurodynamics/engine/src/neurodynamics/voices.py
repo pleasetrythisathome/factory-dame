@@ -430,40 +430,70 @@ def extract_voices(
         carried = _decayed_prev_voices(prev.voices, set(), cfg)
         return VoiceState(voices=carried, next_id=prev.next_id)
 
-    # Pairwise amplitude-envelope correlation over active oscillators
+    # Pairwise amplitude-envelope correlation over active oscillators.
+    #
+    # Two regimes: modulated oscillators (amp varies over the window)
+    # carry envelope information we can correlate on; flat oscillators
+    # (truly sustained tone, near-zero amp std) don't. Earlier the
+    # code added a deterministic ramp to all flat rows so corrcoef
+    # wouldn't NaN — but that made every flat row perfectly correlated
+    # with every other flat row, so any sustained signal collapsed its
+    # fundamental, harmonics, *and* the entire noise-floor bank into
+    # one giant cluster. Instead we compute correlation only where it
+    # has meaning, and cluster flat pairs purely by harmonic ratio.
     active_amps = amps[:, active_indices]    # (frames, n_active)
-    # np.corrcoef wants features as rows
     if len(active_indices) == 1:
         corr = np.array([[1.0]])
+        flat_mask = np.zeros(1, dtype=bool)
     else:
-        # Guard against zero-variance rows (degenerate amps). corrcoef
-        # would otherwise emit NaN.
         stds = active_amps.std(axis=0)
-        if (stds == 0).any():
-            # Replace flat rows with tiny noise to get well-defined
-            # correlations (self-correlation = 1, cross = 0).
-            active_amps = active_amps + (stds == 0) * 1e-12 * np.arange(
-                1, active_amps.shape[0] + 1
-            )[:, None]
-        corr = np.corrcoef(active_amps.T)
+        flat_mask = stds < 1e-9
+        with np.errstate(invalid="ignore", divide="ignore"):
+            corr = np.corrcoef(active_amps.T)
         corr = np.nan_to_num(corr, nan=0.0)
+        # Zero out correlations involving flat rows — correlation was
+        # ill-defined for them; harmonic-ratio adjacency (below) is
+        # the real clustering signal for sustained content.
+        if flat_mask.any():
+            flat_idx = np.where(flat_mask)[0]
+            corr[flat_idx, :] = 0.0
+            corr[:, flat_idx] = 0.0
+            corr[flat_idx, flat_idx] = 1.0
 
-    # Harmonic ratio boost
-    if cfg.harmonic_boost > 0 and len(active_indices) > 1:
+    # Build adjacency: per-pair decision based on whether each
+    # oscillator's envelope carries information.
+    #
+    # - Both modulated: cluster if correlation exceeds threshold.
+    #   Harmonic ratio adds a boost (belt-and-suspenders for noisy
+    #   or weakly-articulated voices).
+    # - Either flat: correlation is uninformative; cluster iff the
+    #   pair is harmonically related. This catches sustained tones
+    #   where the fundamental and its harmonics are all flat, and
+    #   flanking bins driven by the same Hopf resonance.
+    n_active = len(active_indices)
+    adj = np.zeros((n_active, n_active), dtype=bool)
+    if n_active > 1:
         freqs = window.pitch_freqs
-        for a in range(len(active_indices)):
-            for b in range(a + 1, len(active_indices)):
+        for a in range(n_active):
+            for b in range(a + 1, n_active):
                 f_a = float(freqs[active_indices[a]])
                 f_b = float(freqs[active_indices[b]])
-                if _pair_is_harmonic(
+                harmonic = _pair_is_harmonic(
                     f_a, f_b, cfg.harmonic_ratio_tolerance_semitones
-                ):
-                    corr[a, b] = min(1.0, corr[a, b] + cfg.harmonic_boost)
-                    corr[b, a] = corr[a, b]
+                )
+                if flat_mask[a] or flat_mask[b]:
+                    connect = harmonic
+                else:
+                    c = corr[a, b]
+                    if harmonic and cfg.harmonic_boost > 0:
+                        c = min(1.0, c + cfg.harmonic_boost)
+                        corr[a, b] = c
+                        corr[b, a] = c
+                    connect = c > cfg.correlation_threshold
+                if connect:
+                    adj[a, b] = True
+                    adj[b, a] = True
 
-    # Threshold → adjacency → connected components
-    adj = corr > cfg.correlation_threshold
-    np.fill_diagonal(adj, False)
     components = _connected_components_from_adj(adj)
 
     # Build candidate cluster descriptors

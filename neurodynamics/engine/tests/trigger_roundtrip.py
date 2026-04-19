@@ -346,17 +346,25 @@ def compare(pattern: TriggerPattern, timeline: list[dict]) -> dict:
 
 # ── VCV Rack bridge ────────────────────────────────────────────────
 
-def write_cv_wav(pattern: TriggerPattern, out_dir: Path) -> Path:
-    """Render the trigger pattern as one stereo DC-coupled CV WAV
-    at 48 kHz — L=gate, R=pitch — that VCV Rack plays back via an
-    Audio File module. VCV treats audio and CV identically (both are
-    ±10 V floats internally, mapped from ±1.0 in WAV), so a WAV is a
-    perfectly valid CV source.
+# VCV/Eurorack 1V/oct convention: 0 V at V/OCT corresponds to C4
+# (261.63 Hz), not C0 as the ES-9 docs sometimes show. VCV's Fundamental
+# VCO-1 and virtually all Eurorack VCOs default to C4 = 0 V root. A4
+# is +0.75 V above C4; C2 is -2 V; all pattern notes fit in ±1 V, well
+# within the ±10 V range VCV's Audio module passes.
+CV_REF_HZ = 261.6256          # C4 — V/OCT anchor
+CV_VOLT_SCALE = 10.0          # WAV ±1.0 ↔ ±10 V in VCV
 
-    Channel mapping (same CV protocol as the Expert Sleepers ES-9):
-    - Gate (L): 5 V on, 0 V off → WAV value 0.5 / 0.0
-    - Pitch (R): 1 V/octave, C0 at 0 V. A4 = 4.75 V → WAV 0.475.
-      Highest note in the default patterns (C5) = 5.75 V → 0.575.
+
+def write_cv_wav(pattern: TriggerPattern, out_dir: Path) -> Path:
+    """Render the trigger pattern as one stereo DC-coupled CV WAV at
+    48 kHz — L=gate, R=pitch 1V/oct — that VCV Rack reads via its
+    Audio module. VCV treats audio and CV identically (±10 V ↔ ±1.0
+    in WAV), so the WAV is a valid CV source.
+
+    Channel mapping:
+    - Gate (L): 5 V on, 0 V off → WAV 0.5 / 0.0
+    - Pitch (R): 1 V/octave, 0 V = C4 (261.63 Hz). A4 = +0.75 V
+      → WAV 0.075. C2 = -2.0 V → WAV -0.2.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     n = int(pattern.duration_s * CV_FS)
@@ -364,9 +372,9 @@ def write_cv_wav(pattern: TriggerPattern, out_dir: Path) -> Path:
     for trig in pattern.triggers:
         start = int(trig.start_s * CV_FS)
         end = min(int((trig.start_s + trig.duration_s) * CV_FS), n)
-        stereo[start:end, 0] = 0.5 * trig.velocity            # 5 V gate
-        volts = float(np.log2(trig.freq_hz / 16.3516))         # C0 ref
-        stereo[start:end, 1] = volts / 10.0                    # 1 V/oct
+        stereo[start:end, 0] = 0.5 * trig.velocity
+        volts = float(np.log2(trig.freq_hz / CV_REF_HZ))
+        stereo[start:end, 1] = volts / CV_VOLT_SCALE
     cv_path = out_dir / f"{pattern.name}.cv.wav"
     sf.write(cv_path, stereo, CV_FS, subtype="FLOAT")
     return cv_path

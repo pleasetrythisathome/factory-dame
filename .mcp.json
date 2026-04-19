@@ -3,6 +3,12 @@
     "aswritten" : {
       "type" : "http",
       "url" : "https://api.aswritten.ai/mcp"
+    },
+    "clojure-mcp" : {
+      "type" : "stdio",
+      "command" : "clojure",
+      "args" : [ "-Tmcp", "start", ":config-profile", ":cli-assist" ],
+      "env" : { }
     }
   }
 }
