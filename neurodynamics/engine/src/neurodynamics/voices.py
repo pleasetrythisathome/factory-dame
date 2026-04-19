@@ -189,9 +189,13 @@ class VoiceClusteringConfig:
     noise_floor: float = 0.005
     active_fraction: float = 0.25   # fraction of peak amplitude to count as active
 
-    # Correlation clustering
+    # Correlation clustering. Two thresholds: the strict one for
+    # unrelated pairs (prevents two instruments from colliding), and
+    # a permissive one for harmonic pairs (fundamental + harmonics
+    # belong together unless clearly anti-correlated).
     correlation_threshold: float = 0.6
-    harmonic_boost: float = 0.15    # added to correlation when pair has harmonic ratio
+    harmonic_correlation_threshold: float = 0.5
+    harmonic_boost: float = 0.15    # retained for backward compatibility; unused in new logic
     harmonic_ratio_tolerance_semitones: float = 0.5
 
     # Cluster filtering
@@ -453,7 +457,16 @@ def extract_voices(
         flat_mask = np.zeros(1, dtype=bool)
     else:
         stds = active_amps.std(axis=0)
-        flat_mask = stds < 1e-9
+        means = active_amps.mean(axis=0)
+        # "Flat" = coefficient of variation below a small threshold.
+        # A row is flat if its envelope varies by less than ~2% over
+        # the window, relative to its mean amplitude. This catches
+        # sustained synth tones (truly constant) AND near-flat signals
+        # with small measurement noise, but stays False for musical
+        # envelopes that genuinely vary (>10% typically).
+        with np.errstate(invalid="ignore", divide="ignore"):
+            cv = np.where(means > 1e-6, stds / means, 0.0)
+        flat_mask = cv < 0.02
         with np.errstate(invalid="ignore", divide="ignore"):
             corr = np.corrcoef(active_amps.T)
         corr = np.nan_to_num(corr, nan=0.0)
@@ -467,19 +480,29 @@ def extract_voices(
             corr[flat_idx, flat_idx] = 1.0
 
     # Build adjacency: per-pair decision based on whether each
-    # oscillator's envelope carries information.
+    # oscillator's envelope carries information, AND whether the
+    # pair is harmonically related.
     #
-    # - Both modulated: cluster if correlation exceeds threshold.
-    #   Harmonic ratio adds a boost (belt-and-suspenders for noisy
-    #   or weakly-articulated voices).
-    # - Either flat: correlation is uninformative; cluster iff the
-    #   pair is harmonically related. This catches sustained tones
-    #   where the fundamental and its harmonics are all flat, and
-    #   flanking bins driven by the same Hopf resonance.
+    # Non-harmonic pairs: cluster only if correlation is strong
+    #   (>= correlation_threshold, default 0.6). Two unrelated
+    #   instruments playing together won't collide.
+    # Harmonic pairs: cluster UNLESS clearly anti-correlated. Two
+    #   oscillators at a 2:1 ratio driven by the same source will
+    #   phase-lock (and show up with correlated or weakly-correlated
+    #   envelopes); two oscillators at 2:1 driven by different sources
+    #   with anti-phase envelopes will have strong negative
+    #   correlation and won't cluster. This is the closest proxy for
+    #   the NRT phase-lock primitive with the correlation signal
+    #   we currently compute — see Task #32 for potential replacement
+    #   with direct phase-locking value (PLV).
+    # Flat rows (std < 1e-9): correlation meaningless, defer entirely
+    #   to harmonic relationship.
     n_active = len(active_indices)
     adj = np.zeros((n_active, n_active), dtype=bool)
     if n_active > 1:
         freqs = window.pitch_freqs
+        threshold_nonharm = cfg.correlation_threshold
+        threshold_harm = cfg.harmonic_correlation_threshold
         for a in range(n_active):
             for b in range(a + 1, n_active):
                 f_a = float(freqs[active_indices[a]])
@@ -489,13 +512,10 @@ def extract_voices(
                 )
                 if flat_mask[a] or flat_mask[b]:
                     connect = harmonic
+                elif harmonic:
+                    connect = corr[a, b] > threshold_harm
                 else:
-                    c = corr[a, b]
-                    if harmonic and cfg.harmonic_boost > 0:
-                        c = min(1.0, c + cfg.harmonic_boost)
-                        corr[a, b] = c
-                        corr[b, a] = c
-                    connect = c > cfg.correlation_threshold
+                    connect = corr[a, b] > threshold_nonharm
                 if connect:
                     adj[a, b] = True
                     adj[b, a] = True
