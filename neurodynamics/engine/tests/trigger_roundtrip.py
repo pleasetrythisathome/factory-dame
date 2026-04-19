@@ -168,12 +168,134 @@ def pattern_polyrhythm() -> TriggerPattern:
                            triggers=triggers)
 
 
+def pattern_sustained_chord() -> TriggerPattern:
+    """C major triad (C4 E4 G4) all held for 3 seconds simultaneously.
+    Tests sustained polyphony — three flat voices at non-harmonic
+    intervals (major third + minor third stacked)."""
+    return TriggerPattern(
+        name="sustained_chord",
+        duration_s=4.0,
+        triggers=[
+            Trigger(start_s=0.5, duration_s=3.0,
+                    freq_hz=_hz_from_semitones_above_A4(-9)),   # C4
+            Trigger(start_s=0.5, duration_s=3.0,
+                    freq_hz=_hz_from_semitones_above_A4(-5)),   # E4
+            Trigger(start_s=0.5, duration_s=3.0,
+                    freq_hz=_hz_from_semitones_above_A4(-2)),   # G4
+        ],
+    )
+
+
+def pattern_polyphonic_duet() -> TriggerPattern:
+    """Bass line under a melody, two independent voices at different
+    pitches and rhythms. The classic two-voice extraction test —
+    distinct pitches AND distinct envelopes."""
+    triggers = []
+    # Bass (slow): A2 - E2 - F2 - E2, one per 1.5s
+    bass_notes = [-24, -29, -28, -29]   # semitones from A4
+    for i, n in enumerate(bass_notes):
+        triggers.append(Trigger(
+            start_s=i * 1.5, duration_s=1.4,
+            freq_hz=_hz_from_semitones_above_A4(n), velocity=0.9,
+        ))
+    # Melody (faster): A4 - C#5 - E5 - A5 - E5 - C#5, 0.5s each,
+    # starting 0.25s into the piece so it floats over the bass
+    melody_notes = [0, 4, 7, 12, 7, 4]
+    for i, n in enumerate(melody_notes):
+        triggers.append(Trigger(
+            start_s=0.25 + i * 0.5, duration_s=0.45,
+            freq_hz=_hz_from_semitones_above_A4(n), velocity=0.7,
+        ))
+    return TriggerPattern(name="polyphonic_duet", duration_s=6.5,
+                           triggers=triggers)
+
+
+def pattern_harmonic_stack() -> TriggerPattern:
+    """Fundamental + 2f + 3f + 4f all sustained simultaneously. The
+    engine SHOULD cluster these as one voice at the fundamental (the
+    NRT-distinctive behavior). If it sees them as 4 voices, the
+    harmonic-adjacency path isn't doing its job."""
+    f = 220.0
+    return TriggerPattern(
+        name="harmonic_stack",
+        duration_s=4.0,
+        triggers=[
+            Trigger(start_s=0.5, duration_s=3.0, freq_hz=f,         velocity=1.0),
+            Trigger(start_s=0.5, duration_s=3.0, freq_hz=f * 2,     velocity=0.6),
+            Trigger(start_s=0.5, duration_s=3.0, freq_hz=f * 3,     velocity=0.4),
+            Trigger(start_s=0.5, duration_s=3.0, freq_hz=f * 4,     velocity=0.3),
+        ],
+    )
+
+
+def pattern_phantom_fundamental() -> TriggerPattern:
+    """2f + 3f + 4f at 220 Hz fundamental, but the fundamental itself
+    is ABSENT. NRT's quintic nonlinearity should regenerate a response
+    at 220 Hz (phantom). The engine should extract one voice at 220
+    Hz even though that frequency was never in the input."""
+    f = 220.0
+    return TriggerPattern(
+        name="phantom_fundamental",
+        duration_s=4.0,
+        triggers=[
+            Trigger(start_s=0.5, duration_s=3.0, freq_hz=f * 2,     velocity=0.8),
+            Trigger(start_s=0.5, duration_s=3.0, freq_hz=f * 3,     velocity=0.6),
+            Trigger(start_s=0.5, duration_s=3.0, freq_hz=f * 4,     velocity=0.4),
+        ],
+    )
+
+
+def pattern_vibrato() -> TriggerPattern:
+    """Single sustained pitch with subtle vibrato (frequency
+    modulation). Tests voice-center tracking through micro-pitch
+    variation. Uses many short triggers stepping through a narrow
+    range around A4 to simulate FM without needing frequency-CV."""
+    triggers = []
+    step_s = 0.05
+    n_steps = int(3.0 / step_s)
+    for i in range(n_steps):
+        # ±30 cents sinusoidal around A4
+        semitones_off = 0.3 * np.sin(2 * np.pi * 5.0 * i * step_s)
+        freq = _hz_from_semitones_above_A4(semitones_off)
+        triggers.append(Trigger(
+            start_s=0.5 + i * step_s,
+            duration_s=step_s * 1.1,  # slight overlap for smoothness
+            freq_hz=float(freq),
+        ))
+    return TriggerPattern(name="vibrato", duration_s=4.0, triggers=triggers)
+
+
+def pattern_glissando() -> TriggerPattern:
+    """Pitch sliding monotonically from A3 (220) up to A5 (880) over
+    3 seconds. Simulated as stepped triggers at 30 ms intervals. The
+    engine should see one voice whose center_freq drifts smoothly."""
+    triggers = []
+    step_s = 0.03
+    n_steps = int(3.0 / step_s)
+    for i in range(n_steps):
+        # Log-linear sweep from 220 to 880 Hz (2 octaves)
+        frac = i / max(n_steps - 1, 1)
+        freq = 220.0 * 2 ** (2.0 * frac)
+        triggers.append(Trigger(
+            start_s=0.5 + i * step_s,
+            duration_s=step_s * 1.1,
+            freq_hz=float(freq),
+        ))
+    return TriggerPattern(name="glissando", duration_s=4.0, triggers=triggers)
+
+
 ALL_PATTERNS = {
     "single": pattern_single,
     "quarter_notes": pattern_quarter_notes,
     "bassline": pattern_bassline,
     "chord_progression": pattern_chord_progression,
     "polyrhythm": pattern_polyrhythm,
+    "sustained_chord": pattern_sustained_chord,
+    "polyphonic_duet": pattern_polyphonic_duet,
+    "harmonic_stack": pattern_harmonic_stack,
+    "phantom_fundamental": pattern_phantom_fundamental,
+    "vibrato": pattern_vibrato,
+    "glissando": pattern_glissando,
 }
 
 
@@ -412,32 +534,74 @@ VCV Rack setup (one-time, ~5 min):
 """
 
 
-def run_vcv_comparison(pattern_name: str, config_path: Path) -> None:
-    """After VCV has rendered a WAV, load it, run nd-run, and diff
-    against the original trigger schedule."""
+def _compare_source(pattern_name: str, source_tag: str,
+                     config_path: Path, quiet: bool = False) -> dict | None:
+    """Generic: given <pattern>.<source_tag>.wav, run it through
+    nd-run and compare to the known trigger schedule. Returns the
+    report dict or None if missing input."""
     if pattern_name not in ALL_PATTERNS:
         print(f"unknown pattern: {pattern_name}")
-        return
+        return None
     pattern = ALL_PATTERNS[pattern_name]()
-    vcv_audio = OUT_DIR / f"{pattern.name}.vcv.wav"
-    if not vcv_audio.exists():
-        print(f"missing VCV-rendered audio: {vcv_audio}")
-        print("Render it in VCV Rack first (see --vcv flag output).")
-        return
-    parquet_path = ENGINE_DIR / "output" / f"trigger_vcv_{pattern.name}.parquet"
-    print(f"\n=== VCV comparison: {pattern.name} ===")
-    run_engine(vcv_audio, parquet_path, config_path)
+    audio_path = OUT_DIR / f"{pattern.name}.{source_tag}.wav"
+    if not audio_path.exists():
+        print(f"missing: {audio_path}")
+        return None
+    parquet_path = (ENGINE_DIR / "output"
+                    / f"trigger_{source_tag}_{pattern.name}.parquet")
+    if not quiet:
+        print(f"\n=== {source_tag} comparison: {pattern.name} ===")
+    run_engine(audio_path, parquet_path, config_path)
     timeline = extract_voice_timeline(parquet_path)
     report = compare(pattern, timeline)
-    print(f"  coverage:       {report['coverage_pct']:5.1f}% "
-          f"({report['triggers_matched']}/{report['triggers_total']})")
-    print(f"  phantom voices: {report['phantom_pct']:5.1f}% "
-          f"({report['phantom_voice_frames']}/{report['total_voice_frames']})")
     cents = [r["cents_off"] for r in report["per_trigger"]
              if r.get("cents_off") is not None]
-    if cents:
-        print(f"  pitch error:    median {float(np.median(cents)):.0f} cents, "
-              f"max {max(cents):.0f} cents")
+    report["median_cents"] = float(np.median(cents)) if cents else None
+    report["max_cents"] = float(max(cents)) if cents else None
+    if not quiet:
+        print(f"  coverage:       {report['coverage_pct']:5.1f}% "
+              f"({report['triggers_matched']}/{report['triggers_total']})")
+        print(f"  phantom voices: {report['phantom_pct']:5.1f}% "
+              f"({report['phantom_voice_frames']}/{report['total_voice_frames']})")
+        if cents:
+            print(f"  pitch error:    median {report['median_cents']:.0f} "
+                  f"cents, max {report['max_cents']:.0f} cents")
+    return report
+
+
+def run_vcv_comparison(pattern_name: str, config_path: Path) -> None:
+    """Wrapper kept for the existing --compare-vcv CLI flag."""
+    _compare_source(pattern_name, "vcv", config_path)
+
+
+def run_overtone_comparison(pattern_name: str, config_path: Path) -> None:
+    """Wrapper for --compare-overtone <name>."""
+    _compare_source(pattern_name, "overtone", config_path)
+
+
+def run_overtone_compare_all(config_path: Path) -> None:
+    """Roundtrip all patterns rendered via Overtone. Prints a
+    summary table at the end."""
+    reports = {}
+    for name in ALL_PATTERNS.keys():
+        r = _compare_source(name, "overtone", config_path, quiet=False)
+        if r is not None:
+            reports[name] = r
+    print()
+    print("=" * 76)
+    print(f"{'pattern':<22}  {'cov%':>5}  {'med_cent':>8}  {'max_cent':>8}  {'phnt%':>5}")
+    print("-" * 76)
+    for name, r in reports.items():
+        mc = f"{r.get('median_cents'):.0f}" if r.get('median_cents') is not None else "  —"
+        xc = f"{r.get('max_cents'):.0f}" if r.get('max_cents') is not None else "  —"
+        print(f"{name:<22}  {r['coverage_pct']:5.1f}  {mc:>8}  {xc:>8}  "
+              f"{r['phantom_pct']:5.1f}")
+    # Aggregate
+    covs = [r['coverage_pct'] for r in reports.values()]
+    phants = [r['phantom_pct'] for r in reports.values()]
+    print("-" * 76)
+    print(f"{'MEAN':<22}  {np.mean(covs):5.1f}  {'':>8}  {'':>8}  "
+          f"{np.mean(phants):5.1f}")
 
 
 # ── CLI ────────────────────────────────────────────────────────────
@@ -466,6 +630,9 @@ def main() -> None:
     ap.add_argument("--compare-vcv", type=str, default=None,
                     help="After VCV renders <pattern>.vcv.wav, run it "
                          "through nd-run and compare to the trigger schedule")
+    ap.add_argument("--compare-overtone", type=str, default=None,
+                    help="Compare an Overtone-rendered <pattern>.overtone.wav. "
+                         "Pass 'all' to batch all patterns and print a summary.")
     ap.add_argument("--config", type=Path,
                     default=ENGINE_DIR / "config.toml")
     args = ap.parse_args()
@@ -474,6 +641,13 @@ def main() -> None:
 
     if args.compare_vcv:
         run_vcv_comparison(args.compare_vcv, args.config)
+        return
+
+    if args.compare_overtone:
+        if args.compare_overtone == "all":
+            run_overtone_compare_all(args.config)
+        else:
+            run_overtone_comparison(args.compare_overtone, args.config)
         return
 
     if args.pattern == "all":

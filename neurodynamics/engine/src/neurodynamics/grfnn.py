@@ -337,10 +337,14 @@ class GrFNN:
         self._k4 = np.empty(n_oscillators, dtype=np.complex128)
         self._ztmp = np.empty(n_oscillators, dtype=np.complex128)
         self._wz_scaled = np.empty(n_oscillators, dtype=np.complex128)
-        rng = np.random.default_rng(0)
-        self.z = (rng.standard_normal(n_oscillators)
-                  + 1j * rng.standard_normal(n_oscillators)) * 1e-3
-        self.z = self.z.astype(np.complex128)
+        # Initial state: zero. With alpha<0 (damped) and noise.amp=0,
+        # the oscillators need to be driven from silence by real input.
+        # The previous random-seed initialization (~1e-3 per osc) took
+        # ~20 seconds to decay with alpha=-0.05 and produced a
+        # structured baseline (bins near 31 Hz at amp ~0.003) that
+        # drowned quiet signals. If stochastic initialization is needed
+        # in a specific scenario, add a config option.
+        self.z = np.zeros(n_oscillators, dtype=np.complex128)
         self.last_input_mag = np.zeros(n_oscillators, dtype=np.float64)
         # Per-oscillator prediction residual (surprise). Positive = more
         # input than needed to sustain current amplitude (onset / syncopation).
