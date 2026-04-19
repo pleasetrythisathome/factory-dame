@@ -41,7 +41,11 @@ from .viewer import (
 )
 
 WINDOW_S = 12.0
-VOICE_WINDOW_S = 6.0  # voice-pitch panel window, tighter than the heatmap
+# Voice-pitch panel window. Tightened from 6.0 → 2.5 because with the
+# cleaned-up engine, voice IDs persist long enough that older history
+# drowns new activity at the right edge — shorter window shows current
+# melodic structure more prominently.
+VOICE_WINDOW_S = 2.5
 
 
 class LiveStateBuffer:
@@ -689,7 +693,11 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         seg_colors: list = []
         seg_widths: list = []
         MAX_LW = 5.0                 # line width at global peak
-        AMP_FLOOR = 0.02             # below this → invisible (silence)
+        # Fade floor — matches the voice clusterer's noise_floor
+        # (0.005) after the engine cleanup. Previous 0.02 would hide
+        # every voice on clean synth content (amps 0.005-0.02 are
+        # typical) and mute real-music voices during quieter passages.
+        AMP_FLOOR = 0.003
         label_targets: list[tuple[int, float, str]] = []
         # Absolute normalization: find the loudest voice-amp across
         # the visible window, map that to MAX_LW. Anything ≤ FLOOR
