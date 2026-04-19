@@ -56,8 +56,8 @@ query = "Function Voiceprint Sandwell"
 start_sec = 60
 duration_sec = 90
 expected_voices_min = 1
-expected_voices_max = 5
-notes = "Stripped techno — kick + sparse melodic elements"
+expected_voices_max = 8
+notes = "Stripped techno — kick + sparse melodic elements. Upper bound raised to 8 after the pitch-bank cleanup (noise=0, gain=0.5) revealed additional voices that the previous 0.02 noise floor was masking; the parquet used here pre-dates that cleanup, so reconciliation via `rip_corpus` is queued."
 
 [[track]]
 slug = "sandwell_district_immolare"
@@ -67,8 +67,8 @@ query = "Sandwell District Immolare"
 start_sec = 60
 duration_sec = 90
 expected_voices_min = 1
-expected_voices_max = 5
-notes = "Drone-leaning techno"
+expected_voices_max = 8
+notes = "Drone-leaning techno — upper bound raised to 8 for the same reason as function_voiceprint."
 
 [[track]]
 slug = "burial_archangel"
@@ -78,8 +78,8 @@ query = "Burial Archangel"
 start_sec = 30
 duration_sec = 90
 expected_voices_min = 1
-expected_voices_max = 5
-notes = "Muddy / atmospheric — heavily filtered vocal, reverb, sub-bass"
+expected_voices_max = 8
+notes = "Muddy / atmospheric — heavily filtered vocal, reverb, sub-bass. Upper bound raised after the pitch-bank cleanup (see function_voiceprint)."
 
 [[track]]
 slug = "disclosure_latch"
