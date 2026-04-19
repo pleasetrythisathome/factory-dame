@@ -148,7 +148,7 @@ drive_thresh = 0.02
 # Downsample state snapshots to this rate for disk logging.
 # Rhythm network naturally runs at ~500 Hz, but 60 Hz snapshots are plenty
 # for both the viewer and downstream particle/synth consumers.
-snapshot_hz = 60
+snapshot_hz = 30
 # Cadence (Hz) for capturing Hebbian weight matrix snapshots over time.
 # 0 disables history (only the final W is saved). 2–4 Hz is plenty for
 # animating the learning evolution in the viewer.

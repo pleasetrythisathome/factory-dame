@@ -39,12 +39,21 @@ def _make_net(alpha: float = -0.05, beta: float = -1.0, input_gain: float = 1.0,
 
 class TestCanonicalDynamics:
     def test_undriven_decay_when_subcritical(self):
-        """alpha < 0 with no input → |z| decays from initial noise toward 0."""
+        """alpha < 0 with no input + perturbation → |z| decays toward 0.
+
+        With zero-init (not random-noise init), we need to kick the
+        oscillators off the origin to test decay behavior — otherwise
+        they just sit at 0.
+        """
         net = _make_net(alpha=-0.5, n=10, dt=0.001)
+        # Seed a small perturbation that should decay below the
+        # strict assertion threshold within the test's 2 s horizon.
+        # For alpha=-0.5 time constant is 2 s, so 2 s = 1 e-fold
+        # (|z| × 0.37). Start at 1e-3 so the final is < 4e-4.
+        net.z = np.full(net.n, 1e-3 + 0.0j, dtype=np.complex128)
         steps = 2000
         no_drive = np.zeros((steps, net.n), dtype=np.complex128)
         amps = _run_steps(net, no_drive)
-        # Initial noise is ~1e-3; after decay should be far smaller still.
         assert amps[-1].max() < amps[0].max()
         assert amps[-1].max() < 1e-3
 
