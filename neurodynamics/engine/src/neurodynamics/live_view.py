@@ -416,8 +416,15 @@ def run_live(config_path: Path, osc_port: int | None = None) -> None:
         figsize=(14, 16 + (2 if motor_enabled else 0)),
         constrained_layout=True, facecolor=_PAPER,
     )
+    # Column width ratio: tuned so the rhythm-side panels (profile,
+    # coherence, phantom) are readable. Previously used
+    # [len(pf), len(rf)] = [279, 50], which gave the rhythm column only
+    # 15% of the width and squeezed the rhythm profile into the right
+    # 1/8. The heatmaps above span both columns with aspect="auto" so
+    # they don't care about the ratio; only the sub-panels at row 3-5
+    # need balance.
     gs = GridSpec(len(row_h), 2, figure=fig, height_ratios=row_h,
-                   width_ratios=[len(pf), len(rf)])
+                   width_ratios=[3, 2])
     ax_banner = fig.add_subplot(gs[0, :]); ax_banner.set_axis_off()
     ax_p = fig.add_subplot(gs[1, :])
     ax_r = fig.add_subplot(gs[2, :])
