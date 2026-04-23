@@ -1,0 +1,137 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# Transaction provenance (default graph)
+INSERT DATA {
+  narr:Tx_20250522T120000Z a prov:Activity ;
+    prov:generatedAtTime "2025-05-22T12:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "n8n.aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2025-05-22-pipeline-tools.md" ;
+    narr:originRef "main" ;
+    prov:generated narr:Sample_PipelineToolDecisions_20250522, 
+                   narr:Actor_Scarlet_AW, 
+                   narr:Actor_Taylor_AW,
+                   narr:Narrative_PragmaticToolSelection,
+                   narr:Claim_ClojureGeomCore,
+                   narr:Claim_CadQueryPrecision,
+                   narr:Claim_RhinoIntegration,
+                   narr:Claim_FusionLearning,
+                   narr:Claim_LXStudioFreshStart,
+                   narr:Claim_OrganicAIExperimentation,
+                   narr:StyleObs_PragmaticTone,
+                   narr:StyleObs_BulletListStructure,
+                   narr:StyleObs_TechnicalJargon,
+                   narr:Metrics_PipelineToolDecisions .
+} ;
+
+# Extracted entities (named graph)
+INSERT DATA {
+  GRAPH narr:Tx_20250522T120000Z {
+    narr:Sample_PipelineToolDecisions_20250522 a narr:Sample ;
+      dct:title "Pipeline Tool Decisions — What's Settled and What's Open" ;
+      narr:inputLength 845 .
+
+    narr:Actor_Scarlet_AW a narr:Actor ;
+      skos:prefLabel "Scarlet" ;
+      skos:note "Expert in Clojure and 3D modeling; lead on generative core." .
+
+    narr:Actor_Taylor_AW a narr:Actor ;
+      skos:prefLabel "Taylor" ;
+      skos:note "Learning Fusion 360 for the project." .
+
+    narr:Narrative_PragmaticToolSelection a narr:Narrative ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      narr:theme "Pragmatic Tool Selection" ;
+      skos:broader narr:StackOverview ;
+      skos:note "Tool choices are framed as pragmatic decisions based on expertise rather than rigid architectural mandates." .
+
+    narr:Claim_ClojureGeomCore a narr:Claim ;
+      narr:aboutNode narr:TechnologiesSocialSystems ;
+      narr:hasConvictionLevel narr:Conviction_Foundation ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      skos:note "Clojure + thi.ng/geom forms the generative/procedural core of the pipeline." .
+
+    narr:Claim_CadQueryPrecision a narr:Claim ;
+      narr:aboutNode narr:TechnologiesSocialSystems ;
+      narr:hasConvictionLevel narr:Conviction_Boulder ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      skos:note "CadQuery is used for mechanical parts interfacing with generative forms." .
+
+    narr:Claim_RhinoIntegration a narr:Claim ;
+      narr:aboutNode narr:TechnologiesSocialSystems ;
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      skos:note "Rhino serves as the integration workspace for NURBS and boolean operations." .
+
+    narr:Claim_FusionLearning a narr:Claim ;
+      narr:aboutNode narr:RoleSkillUplift ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      skos:note "Both Scarlet and Taylor are in the process of evaluating or learning Fusion 360." .
+
+    narr:Claim_LXStudioFreshStart a narr:Claim ;
+      narr:aboutNode narr:TrendForecasting ;
+      narr:hasConvictionLevel narr:Conviction_Stake ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      skos:note "LED/LX Studio history is not assumed to carry forward; fresh exploration is planned." .
+
+    narr:Claim_OrganicAIExperimentation a narr:Claim ;
+      narr:aboutNode narr:Process ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      skos:note "AI workflow experimentation will happen organically without specific constraints." .
+
+    narr:StyleObs_PragmaticTone a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_PipelineToolDecisions_20250522 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 68 ; oa:end 125 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; 
+          oa:exact "The tool choices are pragmatic, not architectural statements" ;
+          oa:prefix "What's Open\n\n" ;
+          oa:suffix ":" ]
+      ] .
+
+    narr:StyleObs_BulletListStructure a narr:StyleObservation ;
+      skos:broader narr:FlowCoherence ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_PipelineToolDecisions_20250522 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 129 ; oa:end 155 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; 
+          oa:exact "- **Clojure + thi.ng/geom**" ;
+          oa:prefix "statements:\n\n" ;
+          oa:suffix " — Scarlet's" ]
+      ] .
+
+    narr:StyleObs_TechnicalJargon a narr:StyleObservation ;
+      skos:broader narr:JargonPolicy ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_PipelineToolDecisions_20250522 ;
+        oa:hasSelector [ a oa:TextPositionSelector ; oa:start 440 ; oa:end 480 ] ;
+        oa:hasSelector [ a oa:TextQuoteSelector ; 
+          oa:exact "mating NURBS surfaces, boolean operations" ;
+          oa:prefix "workspace for " ;
+          oa:suffix " between" ]
+      ] .
+
+    narr:Metrics_PipelineToolDecisions a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_PipelineToolDecisions_20250522 ;
+      narr:AverageSentenceLength 15 ;
+      narr:ActiveVoiceRatio 0.85 ;
+      narr:JargonDensity 0.12 ;
+      skos:note "Direct, technical, and list-heavy register." .
+  }
+}
