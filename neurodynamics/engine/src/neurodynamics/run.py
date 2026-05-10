@@ -69,6 +69,7 @@ def _build_grfnn(section: dict) -> GrFNN:
     dl = section.get("delay", {})
     nz = section.get("noise", {})
     tn = section.get("tuning", {})
+    cp = section.get("coupling", {})
     freqs = None
     if tn:
         from .tuning import twelve_tet_freqs
@@ -78,6 +79,24 @@ def _build_grfnn(section: dict) -> GrFNN:
             a4_hz=float(tn.get("a4_hz", 440.0)),
             bins_per_semitone=int(tn.get("bins_per_semitone", 3)),
         )
+    coupling_kernel = None
+    coupling_gain = 0.0
+    if cp.get("enabled", False):
+        from .grfnn import build_integer_ratio_coupling
+        if freqs is None:
+            from numpy import geomspace
+            freqs_for_kernel = geomspace(
+                section["low_hz"], section["high_hz"],
+                int(section["n_oscillators"]),
+            )
+        else:
+            freqs_for_kernel = freqs
+        coupling_kernel = build_integer_ratio_coupling(
+            freqs_for_kernel,
+            tolerance_semitones=float(cp.get("tolerance_semitones", 0.4)),
+            max_octave_distance=float(cp.get("max_octave_distance", 2.5)),
+        )
+        coupling_gain = float(cp.get("gain", 0.05))
     return GrFNN(
         n_oscillators=section["n_oscillators"],
         low_hz=section["low_hz"],
@@ -92,6 +111,8 @@ def _build_grfnn(section: dict) -> GrFNN:
         noise_amp=float(nz.get("amp", 0.0)),
         noise_seed=int(nz.get("seed", 0)),
         freqs=freqs,
+        coupling_kernel=coupling_kernel,
+        coupling_gain=coupling_gain,
     )
 
 

@@ -116,6 +116,28 @@ input_gain = 0.5
 a4_hz = 440.0
 bins_per_semitone = 3
 
+[pitch_grfnn.coupling]
+# Internal coupling kernel D between pitch oscillators. Pre-wires
+# connections at small-integer frequency ratios (1:1, 2:1, 1:2, 3:2,
+# 2:3, 3:1, 1:3) within ±max_octave_distance octaves. Architecture
+# component from Large's canonical NRT model.
+#
+# Public domain (US 7,376,562, expired Nov 2024).
+#
+# Disabled by default: the canonical P_m·A_n coupling form has near-
+# linear behavior at typical audio drive levels (|z|~0.04). Cross-
+# frequency phantom-fundamental generation requires |z| near
+# saturation (~0.95), which we do not reach at standard input_gain.
+# Sweep showed: gain 0–2 has no meaningful effect on engine state;
+# gain 5+ saturates the whole bank. Kept here as infrastructure for
+# future experiments at higher drive or for the Phase-5 Hebbian-
+# learned variant where connection strengths come from coactivity,
+# not pre-wired ratios.
+enabled = false
+gain = 0.0
+tolerance_semitones = 0.4
+max_octave_distance = 2.5
+
 [pitch_grfnn.hebbian]
 # Attunement: weights between co-active pitch oscillators reveal implied
 # tonal hierarchy and harmonic context over time.

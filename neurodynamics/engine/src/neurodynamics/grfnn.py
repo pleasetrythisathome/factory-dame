@@ -39,6 +39,88 @@ class GrFNNParams:
     input_gain: float = 0.5
 
 
+# Default integer-ratio set for the internal coupling kernel D
+# (canonical NRT cross-resonances). The most-stable ratios in NRT's
+# stability hierarchy: 1:1 > 2:1 ≈ 1:2 > 3:2 ≈ 2:3 > 3:1 ≈ 1:3.
+DEFAULT_RESONANCE_RATIOS: tuple[tuple[int, int], ...] = (
+    (1, 1),  # unison / same freq
+    (2, 1),  # octave up
+    (1, 2),  # octave down (subharmonic)
+    (3, 2),  # perfect fifth above
+    (2, 3),  # perfect fourth below
+    (3, 1),  # octave + perfect fifth above
+    (1, 3),  # octave + perfect fifth below
+)
+
+
+def build_integer_ratio_coupling(
+    freqs: np.ndarray,
+    *,
+    ratios: tuple[tuple[int, int], ...] = DEFAULT_RESONANCE_RATIOS,
+    tolerance_semitones: float = 0.4,
+    max_octave_distance: float = 2.5,
+    decay_with_distance: bool = True,
+) -> np.ndarray:
+    """Construct the internal coupling matrix C for a pitch GrFNN.
+
+    Returns a complex (n, n) matrix where C[i, j] is the coupling
+    weight from oscillator j into oscillator i. Non-zero entries
+    exist where (f_i / f_j) approximates one of the integer ratios in
+    ``ratios``. Local kernel: pairs more than ``max_octave_distance``
+    octaves apart are not connected.
+
+    The weights decay with distance from the perfect ratio (Gaussian
+    in log-frequency space) and with octave separation when
+    ``decay_with_distance`` is True. The diagonal is left at zero —
+    an oscillator does not couple to itself via this kernel (it
+    self-resonates through the canonical Hopf dynamics).
+
+    Public domain: this construction is disclosed in US 7,376,562
+    (expired Nov 17, 2024).
+    """
+    n = len(freqs)
+    log_freqs = np.log2(np.asarray(freqs, dtype=np.float64))
+    C = np.zeros((n, n), dtype=np.complex128)
+    target_logs = np.array(
+        [np.log2(p / q) for p, q in ratios], dtype=np.float64
+    )
+    base_weights = np.array(
+        [1.0 / max(p, q) for p, q in ratios], dtype=np.float64
+    )
+    sigma = max(tolerance_semitones / 12.0, 1e-6)
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            log_ratio = log_freqs[i] - log_freqs[j]
+            if abs(log_ratio) > max_octave_distance:
+                continue
+            # Match against the catalogue of ratios; pick the closest.
+            best_idx = -1
+            best_dist_oct = float("inf")
+            for k, target in enumerate(target_logs):
+                d = abs(log_ratio - target)
+                if d < best_dist_oct:
+                    best_dist_oct = d
+                    best_idx = k
+            # Hard cutoff outside 2σ — ensures clearly non-harmonic
+            # pairs get zero weight rather than a tiny exponential
+            # tail. Inside the window, Gaussian falloff smooths the
+            # edge so slightly mistuned pairs still couple.
+            if best_dist_oct * 12 > 2 * tolerance_semitones:
+                continue
+            falloff = np.exp(-(best_dist_oct / sigma) ** 2 * 0.5)
+            w = base_weights[best_idx] * falloff
+            if decay_with_distance:
+                # Mild penalty for octave separation — connections across
+                # multiple octaves are real (octaves are real harmonic
+                # relationships) but should be slightly weaker than
+                # local resonances.
+                w *= np.exp(-abs(log_ratio) / 4.0)
+            C[i, j] = w
+    return C
+
+
 # ── JIT hot path ─────────────────────────────────────────────────
 #
 # The Hopf ODE right-hand side + RK4 integration is the engine's
@@ -62,6 +144,7 @@ def _deriv_jit(
     wz_scaled: np.ndarray, W_enabled: bool, n: int,
     delayed: np.ndarray, delay_enabled: bool, delay_gain: float,
     out: np.ndarray,
+    internal_coupling: np.ndarray, C_enabled: bool, coupling_gain: float,
 ) -> None:
     """Hopf RHS per oscillator. ``wz_scaled`` carries the
     precomputed ``(W @ z) / n`` from the RK4 wrapper (computed once
@@ -83,6 +166,8 @@ def _deriv_jit(
         rhs = zi * (linear + cubic + quintic) + x[i]
         if W_enabled:
             rhs = rhs + wz_scaled[i]
+        if C_enabled:
+            rhs = rhs + coupling_gain * internal_coupling[i]
         if delay_enabled:
             rhs = rhs + delay_gain * delayed[i]
         out[i] = rhs
@@ -98,10 +183,18 @@ def _rk4_step_jit(
     dt: float,
     k1: np.ndarray, k2: np.ndarray, k3: np.ndarray, k4: np.ndarray,
     ztmp: np.ndarray, wz_scaled: np.ndarray,
+    C: np.ndarray, C_enabled: bool, coupling_gain: float,
+    P_scratch: np.ndarray, A_scratch: np.ndarray,
+    internal_scratch: np.ndarray,
 ) -> None:
     """One RK4 advance, writing the result back into ``z`` in place.
     All scratch buffers are caller-supplied so heap allocation is
-    amortized."""
+    amortized.
+
+    Both W coupling (Hebbian-learned) and C coupling (integer-ratio
+    kernel) are computed once at the start of the step and held
+    constant across the 4 RK4 stages — same approximation, valid
+    when dt ≪ 1/ω_max."""
     # Compute W @ z / n once per step (constant across RK4 stages).
     if W_enabled:
         inv_n = 1.0 / n
@@ -110,24 +203,51 @@ def _rk4_step_jit(
             for j in range(n):
                 acc += W[i, j] * z[j]
             wz_scaled[i] = acc * inv_n
+    # Compute integer-ratio internal coupling once per step.
+    if C_enabled:
+        sqrt_eps = np.sqrt(max(epsilon, 1e-9))
+        eps_guard = 1e-12
+        for i in range(n):
+            d = 1.0 - sqrt_eps * z[i]
+            d_mag2 = d.real * d.real + d.imag * d.imag
+            if d_mag2 < eps_guard:
+                P_scratch[i] = 0.0 + 0.0j
+            else:
+                P_scratch[i] = z[i] / d
+            zc = complex(z[i].real, -z[i].imag)
+            d2 = 1.0 - sqrt_eps * zc
+            d2_mag2 = d2.real * d2.real + d2.imag * d2.imag
+            if d2_mag2 < eps_guard:
+                A_scratch[i] = 0.0 + 0.0j
+            else:
+                A_scratch[i] = 1.0 / d2
+        for i in range(n):
+            acc = 0.0 + 0.0j
+            for j in range(n):
+                acc += C[i, j] * P_scratch[j]
+            internal_scratch[i] = A_scratch[i] * acc
     _deriv_jit(z, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
-               delayed, delay_enabled, delay_gain, k1)
+               delayed, delay_enabled, delay_gain, k1,
+               internal_scratch, C_enabled, coupling_gain)
     for i in range(n):
         ztmp[i] = z[i] + 0.5 * dt * k1[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
-               delayed, delay_enabled, delay_gain, k2)
+               delayed, delay_enabled, delay_gain, k2,
+               internal_scratch, C_enabled, coupling_gain)
     for i in range(n):
         ztmp[i] = z[i] + 0.5 * dt * k2[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
-               delayed, delay_enabled, delay_gain, k3)
+               delayed, delay_enabled, delay_gain, k3,
+               internal_scratch, C_enabled, coupling_gain)
     for i in range(n):
         ztmp[i] = z[i] + dt * k3[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
-               delayed, delay_enabled, delay_gain, k4)
+               delayed, delay_enabled, delay_gain, k4,
+               internal_scratch, C_enabled, coupling_gain)
     dt_over_6 = dt / 6.0
     for i in range(n):
         z[i] = z[i] + dt_over_6 * (k1[i] + 2.0 * k2[i]
@@ -136,6 +256,60 @@ def _rk4_step_jit(
 
 _EMPTY_W = np.zeros((0, 0), dtype=np.complex128)
 _EMPTY_DELAY = np.zeros(0, dtype=np.complex128)
+_EMPTY_C = np.zeros((0, 0), dtype=np.complex128)
+
+
+@njit(cache=True, fastmath=True)
+def _compute_internal_coupling_jit(
+    z: np.ndarray,                 # (n,) current state
+    C: np.ndarray,                 # (n, n) coupling kernel
+    sqrt_eps: float,
+    n: int,
+    P: np.ndarray,                 # (n,) scratch
+    A: np.ndarray,                 # (n,) scratch
+    out: np.ndarray,               # (n,) result
+) -> None:
+    """Compute the canonical NRT internal coupling input per oscillator.
+
+    For oscillator i:
+        internal_i = (1 / (1 - √ε z̄_i)) · Σ_j C[i, j] · (z_j / (1 - √ε z_j))
+
+    The series expansions of P_j = z_j/(1 - √ε z_j) and
+    A_i = 1/(1 - √ε z̄_i) carry all integer-ratio resonance terms
+    automatically — the user's choice of which entries to make
+    non-zero in C selects which resonances participate in the
+    network's dynamics.
+
+    Public domain: this canonical coupling form is disclosed in
+    US 7,376,562 (expired 2024-11-17).
+    """
+    # P_j = z_j / (1 - √ε z_j)
+    # Guard against denominator → 0 when |z| ≈ 1/√ε; clamp introduced
+    # in the integrator already keeps |z| < 0.98/√ε so denom magnitude
+    # ≥ 0.02; we add a small epsilon to be safe in case the helper is
+    # called pre-clamp.
+    eps_guard = 1e-12
+    for i in range(n):
+        d = 1.0 - sqrt_eps * z[i]
+        # Inline complex reciprocal with guard
+        d_mag2 = d.real * d.real + d.imag * d.imag
+        if d_mag2 < eps_guard:
+            P[i] = 0.0 + 0.0j
+        else:
+            P[i] = z[i] / d
+        zc = complex(z[i].real, -z[i].imag)
+        d2 = 1.0 - sqrt_eps * zc
+        d2_mag2 = d2.real * d2.real + d2.imag * d2.imag
+        if d2_mag2 < eps_guard:
+            A[i] = 0.0 + 0.0j
+        else:
+            A[i] = 1.0 / d2
+    # Matvec: out_i = A_i · Σ_j C[i, j] · P_j
+    for i in range(n):
+        acc = 0.0 + 0.0j
+        for j in range(n):
+            acc += C[i, j] * P[j]
+        out[i] = A[i] * acc
 
 
 @njit(cache=True, fastmath=True)
@@ -156,6 +330,11 @@ def _step_many_jit(
     ztmp: np.ndarray, wz_scaled: np.ndarray,
     last_input_mag: np.ndarray,    # (n,) out
     last_residual: np.ndarray,     # (n,) out
+    C: np.ndarray,                 # (n, n) integer-ratio coupling kernel
+    C_enabled: bool, coupling_gain: float,
+    P_scratch: np.ndarray,         # (n,) scratch for P_j = z_j/(1-√ε z_j)
+    A_scratch: np.ndarray,         # (n,) scratch for A_i = 1/(1-√ε z̄_i)
+    internal_scratch: np.ndarray,  # (n,) scratch for kernel result
 ) -> int:
     """Advance ``z`` through ``len(xs)`` samples inside a single
     JIT call. All the per-sample Python overhead that dominated the
@@ -171,9 +350,11 @@ def _step_many_jit(
     beta2c = complex(beta2, delta2)
     dt_over_6 = dt / 6.0
     inv_n = 1.0 / n if n > 0 else 0.0
+    sqrt_eps = np.sqrt(max(epsilon, 1e-9))
     delay_depth = delay_buffer.shape[0] if delay_enabled else 0
     delay_write = delay_write_start
     n_samples = xs.shape[0]
+    eps_guard = 1e-12
     for t in range(n_samples):
         # Per-sample input scaling + magnitude
         for i in range(n):
@@ -194,6 +375,31 @@ def _step_many_jit(
                 for j in range(n):
                     acc += W[i, j] * z[j]
                 wz_scaled[i] = acc * inv_n
+        # Compute integer-ratio internal coupling once per step (held
+        # constant across the 4 RK4 stages — same approximation as W).
+        # For oscillator i: internal_i = A_i · Σ_j C[i,j] · P_j where
+        # P_j = z_j/(1-√ε z_j), A_i = 1/(1-√ε z̄_i). Series expansion
+        # of P*A captures all integer-ratio resonances naturally.
+        if C_enabled:
+            for i in range(n):
+                d = 1.0 - sqrt_eps * z[i]
+                d_mag2 = d.real * d.real + d.imag * d.imag
+                if d_mag2 < eps_guard:
+                    P_scratch[i] = 0.0 + 0.0j
+                else:
+                    P_scratch[i] = z[i] / d
+                zc = complex(z[i].real, -z[i].imag)
+                d2 = 1.0 - sqrt_eps * zc
+                d2_mag2 = d2.real * d2.real + d2.imag * d2.imag
+                if d2_mag2 < eps_guard:
+                    A_scratch[i] = 0.0 + 0.0j
+                else:
+                    A_scratch[i] = 1.0 / d2
+            for i in range(n):
+                acc = 0.0 + 0.0j
+                for j in range(n):
+                    acc += C[i, j] * P_scratch[j]
+                internal_scratch[i] = A_scratch[i] * acc
         # RK4 stage 1
         for i in range(n):
             zi = z[i]
@@ -206,6 +412,8 @@ def _step_many_jit(
             rhs = zi * (linear + cubic + quintic) + xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
+            if C_enabled:
+                rhs = rhs + coupling_gain * internal_scratch[i]
             if delay_enabled:
                 rhs = rhs + delay_gain * delay_buffer[delay_write, i]
             k1[i] = rhs
@@ -221,6 +429,8 @@ def _step_many_jit(
             rhs = ztmp_i * (linear + cubic + quintic) + xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
+            if C_enabled:
+                rhs = rhs + coupling_gain * internal_scratch[i]
             if delay_enabled:
                 rhs = rhs + delay_gain * delay_buffer[delay_write, i]
             k2[i] = rhs
@@ -236,6 +446,8 @@ def _step_many_jit(
             rhs = ztmp_i * (linear + cubic + quintic) + xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
+            if C_enabled:
+                rhs = rhs + coupling_gain * internal_scratch[i]
             if delay_enabled:
                 rhs = rhs + delay_gain * delay_buffer[delay_write, i]
             k3[i] = rhs
@@ -251,6 +463,8 @@ def _step_many_jit(
             rhs = ztmp_i * (linear + cubic + quintic) + xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
+            if C_enabled:
+                rhs = rhs + coupling_gain * internal_scratch[i]
             if delay_enabled:
                 rhs = rhs + delay_gain * delay_buffer[delay_write, i]
             k4[i] = rhs
@@ -314,6 +528,8 @@ class GrFNN:
         noise_amp: float = 0.0,
         noise_seed: int = 0,
         freqs: np.ndarray | None = None,
+        coupling_kernel: np.ndarray | None = None,
+        coupling_gain: float = 0.0,
     ):
         # When ``freqs`` is provided, it fully determines the oscillator
         # layout — the pitch bank passes a 12-TET-aligned grid here so
@@ -381,6 +597,31 @@ class GrFNN:
         self.noise_amp = float(noise_amp)
         self._noise_rng = np.random.default_rng(int(noise_seed))
 
+        # Internal coupling kernel D — pre-wired connections at integer
+        # frequency ratios. Generates phantom fundamentals and reinforces
+        # harmonic coherence directly through the dynamics. Held as a
+        # complex (n, n) matrix; entries non-zero only where two
+        # oscillators are at small-integer frequency ratios. Public domain
+        # (US 7,376,562, expired Nov 2024).
+        self.coupling_gain = float(coupling_gain)
+        self.coupling_enabled = (coupling_kernel is not None
+                                  and self.coupling_gain != 0.0)
+        if self.coupling_enabled:
+            self.C = np.asarray(coupling_kernel, dtype=np.complex128).copy()
+            if self.C.shape != (n_oscillators, n_oscillators):
+                raise ValueError(
+                    f"coupling_kernel shape {self.C.shape} does not match "
+                    f"({n_oscillators}, {n_oscillators})"
+                )
+            self._P_scratch = np.empty(n_oscillators, dtype=np.complex128)
+            self._A_scratch = np.empty(n_oscillators, dtype=np.complex128)
+            self._internal_scratch = np.empty(n_oscillators, dtype=np.complex128)
+        else:
+            self.C = None
+            self._P_scratch = None
+            self._A_scratch = None
+            self._internal_scratch = None
+
     def _deriv(self, z: np.ndarray, x: np.ndarray,
                delayed: np.ndarray | None = None) -> np.ndarray:
         p = self.p
@@ -397,6 +638,11 @@ class GrFNN:
             # sum. Without this, network sizes affect dynamics scale and
             # large layers easily cascade into the integrator clamp.
             rhs = rhs + (self.W @ z) / self.n
+        if self.coupling_enabled:
+            sqrt_eps = np.sqrt(max(p.epsilon, 1e-9))
+            P = z / (1.0 - sqrt_eps * z + 1e-12)
+            A = 1.0 / (1.0 - sqrt_eps * z.conj() + 1e-12)
+            rhs = rhs + self.coupling_gain * A * (self.C @ P)
         if delayed is not None:
             rhs = rhs + self.delay_gain * delayed
         return rhs
@@ -422,6 +668,16 @@ class GrFNN:
             delayed = self.delay_buffer[self._delay_write].copy()
         else:
             delayed = _EMPTY_DELAY
+        if self.coupling_enabled:
+            C_eff = self.C
+            P_eff = self._P_scratch
+            A_eff = self._A_scratch
+            internal_eff = self._internal_scratch
+        else:
+            C_eff = _EMPTY_C
+            P_eff = np.empty(0, dtype=np.complex128)
+            A_eff = np.empty(0, dtype=np.complex128)
+            internal_eff = np.empty(0, dtype=np.complex128)
         _rk4_step_jit(
             self.z, x, self.omega,
             p.alpha, p.beta1, p.beta2, p.delta1, p.delta2, p.epsilon,
@@ -431,6 +687,8 @@ class GrFNN:
             self.dt,
             self._k1, self._k2, self._k3, self._k4,
             self._ztmp, self._wz_scaled,
+            C_eff, self.coupling_enabled, self.coupling_gain,
+            P_eff, A_eff, internal_eff,
         )
         if self.noise_amp > 0.0:
             # Complex Gaussian with amplitude proportional to sqrt(dt) for
@@ -497,6 +755,18 @@ class GrFNN:
                         if self.delay_enabled
                         else np.zeros((0, self.n), dtype=np.complex128))
         W_eff = self.W if self.W is not None else _EMPTY_W
+        # Coupling kernel: pass real matrix + scratch buffers when
+        # enabled; pass empty otherwise (JIT signature still resolves).
+        if self.coupling_enabled:
+            C_eff = self.C
+            P_eff = self._P_scratch
+            A_eff = self._A_scratch
+            internal_eff = self._internal_scratch
+        else:
+            C_eff = _EMPTY_C
+            P_eff = np.empty(0, dtype=np.complex128)
+            A_eff = np.empty(0, dtype=np.complex128)
+            internal_eff = np.empty(0, dtype=np.complex128)
         # Ensure xs is complex128 (JIT doesn't coerce).
         xs = np.ascontiguousarray(xs, dtype=np.complex128)
         new_delay_write = _step_many_jit(
@@ -512,6 +782,8 @@ class GrFNN:
             self._k1, self._k2, self._k3, self._k4,
             self._ztmp, self._wz_scaled,
             self.last_input_mag, self.last_residual,
+            C_eff, self.coupling_enabled, self.coupling_gain,
+            P_eff, A_eff, internal_eff,
         )
         if self.delay_enabled:
             self._delay_write = int(new_delay_write)

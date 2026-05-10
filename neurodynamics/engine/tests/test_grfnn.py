@@ -57,6 +57,133 @@ class TestCanonicalDynamics:
         assert amps[-1].max() < amps[0].max()
         assert amps[-1].max() < 1e-3
 
+
+# ── Internal coupling kernel ──────────────────────────────────────
+
+class TestCouplingKernel:
+    """Tests for the integer-ratio internal coupling kernel D.
+
+    Public domain (US 7,376,562, expired 2024-11-17). The kernel
+    pre-wires oscillator pairs at small-integer frequency ratios so
+    the network exhibits cross-resonances (phantom fundamentals,
+    harmonic reinforcement) without requiring Hebbian learning."""
+
+    def test_kernel_diagonal_is_zero(self):
+        """An oscillator does not couple to itself via the kernel."""
+        from neurodynamics.grfnn import build_integer_ratio_coupling
+        freqs = np.geomspace(100.0, 1600.0, 50)
+        C = build_integer_ratio_coupling(freqs)
+        assert np.allclose(np.diag(C), 0)
+
+    def test_kernel_connects_octaves(self):
+        """Pairs at exact 2:1 and 1:2 ratios get non-zero weight."""
+        from neurodynamics.grfnn import build_integer_ratio_coupling
+        # Hand-pick freqs so 200:400 and 400:800 are exact octaves.
+        freqs = np.array([100.0, 200.0, 400.0, 800.0])
+        C = build_integer_ratio_coupling(freqs, max_octave_distance=4.0)
+        # 200 ↔ 400 is 1 octave apart
+        assert abs(C[1, 2]) > 0
+        assert abs(C[2, 1]) > 0
+        # 400 ↔ 800 too
+        assert abs(C[2, 3]) > 0
+        # 100 ↔ 200 too
+        assert abs(C[0, 1]) > 0
+
+    def test_kernel_skips_non_harmonic_pairs(self):
+        """Pairs at unrelated ratios (e.g. ~tritone) get zero or
+        tiny weight."""
+        from neurodynamics.grfnn import build_integer_ratio_coupling
+        # 440 (A4) and 622 (D#5) — tritone, ratio sqrt(2) ≈ 1.414, not
+        # in our integer-ratio set
+        freqs = np.array([440.0, 622.25])
+        C = build_integer_ratio_coupling(
+            freqs, tolerance_semitones=0.4, max_octave_distance=2.0
+        )
+        assert abs(C[0, 1]) == 0
+        assert abs(C[1, 0]) == 0
+
+    def test_kernel_respects_octave_distance(self):
+        """Pairs more than max_octave_distance apart are not connected
+        even if their ratio is harmonic."""
+        from neurodynamics.grfnn import build_integer_ratio_coupling
+        # 100 and 800 are 3 octaves apart — exact 8:1 ratio, but
+        # outside max_octave_distance=2.0
+        freqs = np.array([100.0, 800.0])
+        C = build_integer_ratio_coupling(freqs, max_octave_distance=2.0)
+        assert abs(C[0, 1]) == 0
+        assert abs(C[1, 0]) == 0
+
+    def test_engine_with_coupling_runs_stable(self):
+        """Engine with coupling enabled doesn't blow up on a sustained
+        sine input. Smoke test for the JIT integration path."""
+        from neurodynamics.grfnn import (
+            GrFNN, GrFNNParams, build_integer_ratio_coupling,
+        )
+        freqs = np.geomspace(100.0, 1600.0, 30)
+        C = build_integer_ratio_coupling(freqs)
+        net = GrFNN(
+            n_oscillators=30, low_hz=100.0, high_hz=1600.0, dt=1e-4,
+            params=GrFNNParams(alpha=-0.05, beta1=-1.0, beta2=-1.0,
+                                epsilon=1.0, input_gain=0.5),
+            freqs=freqs,
+            coupling_kernel=C, coupling_gain=0.05,
+        )
+        # 1 s of constant drive at the 5th oscillator
+        n_samples = 10000
+        x = np.zeros((n_samples, 30), dtype=np.complex128)
+        x[:, 5] = 0.1
+        net.step_many(x)
+        # |z| stays bounded
+        assert np.all(np.abs(net.z) < 1.0)
+        # The driven oscillator has reasonable amp
+        assert np.abs(net.z[5]) > 0
+        assert np.all(np.isfinite(net.z))
+
+    def test_engine_phantom_emerges_with_coupling(self):
+        """A bank driven only at 2f and 3f develops a response at f
+        via the 2:1 and 3:1 coupling — the phantom fundamental.
+
+        Without coupling, the f bin should stay at zero for clean
+        inputs at 2f and 3f. With coupling, it should pick up
+        cross-resonance amplitude."""
+        from neurodynamics.grfnn import (
+            GrFNN, GrFNNParams, build_integer_ratio_coupling,
+        )
+        # Bank with bins exactly at 220 (A3), 440 (A4), 660 (E5)
+        freqs = np.array([220.0, 440.0, 660.0])
+        C = build_integer_ratio_coupling(freqs, max_octave_distance=4.0,
+                                          tolerance_semitones=2.0)
+        params = GrFNNParams(alpha=-0.05, beta1=-1.0, beta2=-1.0,
+                              epsilon=1.0, input_gain=0.5)
+        # Without coupling
+        net_off = GrFNN(
+            n_oscillators=3, low_hz=220.0, high_hz=660.0, dt=1e-4,
+            params=params, freqs=freqs,
+        )
+        # With coupling
+        net_on = GrFNN(
+            n_oscillators=3, low_hz=220.0, high_hz=660.0, dt=1e-4,
+            params=params, freqs=freqs,
+            coupling_kernel=C, coupling_gain=0.2,
+        )
+        # 0.5s of drive at 440 and 660 — sinusoidal at the bank's
+        # natural frequencies (since the input is the per-oscillator
+        # complex input; we simulate strong drive on bins 1 and 2).
+        n_samples = 5000
+        t_arr = np.arange(n_samples) * 1e-4
+        x = np.zeros((n_samples, 3), dtype=np.complex128)
+        x[:, 1] = 0.2 * np.exp(1j * 2 * np.pi * 440.0 * t_arr)
+        x[:, 2] = 0.2 * np.exp(1j * 2 * np.pi * 660.0 * t_arr)
+        net_off.step_many(x.copy())
+        net_on.step_many(x.copy())
+        # Without coupling, bin 0 (220 Hz) gets no drive → ~0 amp
+        assert np.abs(net_off.z[0]) < 1e-3
+        # With coupling, bin 0 should pick up phantom response
+        assert np.abs(net_on.z[0]) > 5 * np.abs(net_off.z[0]), (
+            f"phantom not stronger: off={np.abs(net_off.z[0]):.4f} "
+            f"on={np.abs(net_on.z[0]):.4f}"
+        )
+
     def test_undriven_limit_cycle_when_supercritical(self):
         """alpha > 0 with no input → spontaneous limit cycle at predictable
         amplitude.
