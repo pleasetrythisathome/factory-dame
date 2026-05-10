@@ -268,6 +268,16 @@ def _cluster_stats(
 ) -> tuple[float, float, float, float]:
     """Compute (center_freq, amp, phase_centroid, confidence) for a cluster.
 
+    ``center_freq`` semantics: when the cluster looks like a harmonic
+    stack (the lowest active oscillator has a substantial weight and
+    higher members lie at integer-ratio multiples), report the lowest
+    member's frequency — that's the fundamental, the perceptually
+    correct pitch for the voice. Otherwise (no harmonic structure),
+    fall back to the amp-weighted geometric mean. This matters because
+    a saw wave drives multiple harmonics at significant amplitudes;
+    the geometric mean of 440 + 880 + 1320 + 1760 with sloping weights
+    lands around 700 Hz, which is wrong as a "voice pitch".
+
     ``confidence`` is the mean of within-cluster pairwise correlations.
     If the cluster has a single oscillator, confidence is 1.0
     (trivially coherent with itself).
@@ -279,8 +289,68 @@ def _cluster_stats(
     if total_amp <= 0:
         center_freq = float(cluster_freqs[0]) if len(cluster_freqs) else 0.0
         return center_freq, 0.0, 0.0, 0.0
-    log_f_weighted = (cluster_mean_amps * np.log(cluster_freqs)).sum() / total_amp
-    center_freq = float(np.exp(log_f_weighted))
+    # Harmonic-stack heuristic. Tries several candidate fundamentals
+    # (lowest strong member, peak/2, peak/3) and picks the one that
+    # explains the most amp-weighted cluster mass via integer-ratio
+    # multiples. If at least 60% of strong-member amplitude is at
+    # integer multiples of some candidate within 1 semitone tolerance,
+    # the cluster is a harmonic stack and center_freq pins to that
+    # candidate (perceptually correct pitch).
+    #
+    # Multiple candidates because: (a) when the bank's peak response
+    # is at f, the fundamental might be f itself (peak = bin near
+    # fundamental); but (b) for some cochlear configurations, the
+    # peak response can land on a strong harmonic with the
+    # fundamental at lower amp; (c) phantom-fundamental case has the
+    # actual fundamental driven only by cross-coupling and may be
+    # weaker than its harmonics.
+    is_harmonic_stack = False
+    peak_amp_in_cluster = float(cluster_mean_amps.max())
+    if peak_amp_in_cluster > 0 and len(cluster_freqs) >= 2:
+        # Threshold for "strong" cluster member. 0.3 × peak admits
+        # 2nd-and-higher harmonics that naturally sit at ~1/n amp.
+        strong_mask = cluster_mean_amps >= 0.3 * peak_amp_in_cluster
+        strong_idx = np.where(strong_mask)[0]
+        if len(strong_idx) >= 2:
+            strong_freqs = cluster_freqs[strong_idx]
+            strong_amps = cluster_mean_amps[strong_idx]
+            f_peak = float(cluster_freqs[int(cluster_mean_amps.argmax())])
+            f_lowest = float(strong_freqs.min())
+            # Candidate fundamentals to try.
+            candidates_f = []
+            if f_lowest > 0:
+                candidates_f.append(f_lowest)
+            for div in (2.0, 3.0):
+                cand = f_peak / div
+                if cand > 0 and cand < f_lowest * 1.1:
+                    candidates_f.append(cand)
+            int_multiples = np.array(
+                [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]
+            )
+            log_int_multiples = np.log2(int_multiples)
+            best_cand = None
+            best_aligned_amp = 0.0
+            total_strong_amp = float(strong_amps.sum())
+            for f_cand in candidates_f:
+                ratios = strong_freqs / f_cand
+                log_ratios = np.log2(ratios)
+                dists = np.min(
+                    np.abs(log_ratios[:, None]
+                            - log_int_multiples[None, :]) * 12,
+                    axis=1
+                )
+                aligned_amp = float(strong_amps[dists < 1.0].sum())
+                if aligned_amp > best_aligned_amp:
+                    best_aligned_amp = aligned_amp
+                    best_cand = f_cand
+            if (best_cand is not None
+                    and best_aligned_amp / total_strong_amp >= 0.6):
+                is_harmonic_stack = True
+                center_freq = best_cand
+    if not is_harmonic_stack:
+        log_f_weighted = (cluster_mean_amps
+                          * np.log(cluster_freqs)).sum() / total_amp
+        center_freq = float(np.exp(log_f_weighted))
     amp = float(cluster_mean_amps.mean())
     phase = _circular_mean(phases_last_frame[idx_list], cluster_mean_amps)
     if len(idx_list) < 2 or corr_matrix is None or active_to_cluster_local is None:

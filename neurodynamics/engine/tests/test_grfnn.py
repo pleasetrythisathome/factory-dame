@@ -139,6 +139,47 @@ class TestCouplingKernel:
         assert np.abs(net.z[5]) > 0
         assert np.all(np.isfinite(net.z))
 
+    def test_per_oscillator_tau_changes_dynamics(self):
+        """With per_oscillator_tau=True, the (α, β, drive) terms scale
+        by f_n. Effect: low-freq oscillators decay faster in real time
+        than the uniform-τ default (where decay is the same wall-clock
+        time for all freqs)."""
+        from neurodynamics.grfnn import GrFNN, GrFNNParams
+        freqs = np.array([100.0, 1000.0])
+        params = GrFNNParams(alpha=-0.1, beta1=-1.0, beta2=-1.0,
+                              epsilon=1.0, input_gain=0.5)
+        # Same perturbation applied; decay observed.
+        net_uniform = GrFNN(
+            n_oscillators=2, low_hz=100.0, high_hz=1000.0, dt=1e-4,
+            params=params, freqs=freqs,
+            per_oscillator_tau=False,
+        )
+        net_uniform.z = np.array([0.1 + 0.0j, 0.1 + 0.0j],
+                                  dtype=np.complex128)
+        net_per = GrFNN(
+            n_oscillators=2, low_hz=100.0, high_hz=1000.0, dt=1e-4,
+            params=params, freqs=freqs,
+            per_oscillator_tau=True, tau_reference_hz=1.0,
+        )
+        net_per.z = np.array([0.1 + 0.0j, 0.1 + 0.0j],
+                              dtype=np.complex128)
+        # 0.1 s of zero drive
+        n = 1000
+        x = np.zeros((n, 2), dtype=np.complex128)
+        net_uniform.step_many(x.copy())
+        net_per.step_many(x.copy())
+        # Uniform τ: both oscillators decay at the same alpha rate
+        # over real time. Per-osc τ: 1000 Hz osc decays 10× faster
+        # than 100 Hz osc.
+        amps_uniform = np.abs(net_uniform.z)
+        amps_per = np.abs(net_per.z)
+        # 1000 Hz amp under per-osc τ should be much smaller than
+        # under uniform τ (faster decay).
+        assert amps_per[1] < 0.5 * amps_uniform[1], (
+            f"per-τ 1000Hz amp {amps_per[1]:.4f} not smaller than "
+            f"uniform-τ {amps_uniform[1]:.4f}"
+        )
+
     def test_engine_phantom_emerges_with_coupling(self):
         """A bank driven only at 2f and 3f develops a response at f
         via the 2:1 and 3:1 coupling — the phantom fundamental.

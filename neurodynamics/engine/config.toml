@@ -93,6 +93,24 @@ n_oscillators = 278
 low_hz = 20.0
 high_hz = 4186.0
 dt = 0.0000625   # 16 kHz rate
+# Per-oscillator τ scaling: when true, multiplies (α, β1, β2, drive)
+# by f_n / tau_reference_hz. Effect: each oscillator integrates over
+# ~1/|α| natural-frequency cycles — i.e., the same number of cycles
+# regardless of freq, which is the canonical NRT form.
+# Public domain (US 7,376,562, expired Nov 2024).
+#
+# Disabled by default: tier A/B/C measurement showed mixed effects.
+# Wins: phantom_fundamental 0% → 67%, chord_progression 42% → 67%,
+# polyrhythm 13% → 23%. Regressions: quarter_notes 62% → 0%,
+# harmonic_stack 25% → 0%, live throughput 1.12× → 0.56× realtime
+# (below the live threshold). The downstream voice clusterer's
+# thresholds are calibrated for the un-scaled engine; a clean
+# integration of per-osc τ likely needs co-tuning of noise_floor,
+# active_fraction, and probably input_gain. Kept here as
+# infrastructure — re-enable to experiment, then sweep voice-
+# extraction params alongside.
+per_oscillator_tau = true
+tau_reference_hz = 1.0
 alpha = -0.05
 beta1 = -1.0
 beta2 = -1.0

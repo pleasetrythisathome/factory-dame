@@ -145,25 +145,40 @@ def _deriv_jit(
     delayed: np.ndarray, delay_enabled: bool, delay_gain: float,
     out: np.ndarray,
     internal_coupling: np.ndarray, C_enabled: bool, coupling_gain: float,
+    tau_scale: np.ndarray, tau_enabled: bool,
 ) -> None:
-    """Hopf RHS per oscillator. ``wz_scaled`` carries the
-    precomputed ``(W @ z) / n`` from the RK4 wrapper (computed once
-    per step rather than per RK4 stage — we hold the intra-layer
-    coupling constant across the 4 stages of one dt, which is an
-    acceptable numerical approximation for dt ≪ 1/omega and gives
-    a 4× reduction in matrix-vector cost)."""
+    """Hopf RHS per oscillator.
+
+    ``wz_scaled`` carries the precomputed ``(W @ z) / n`` from the RK4
+    wrapper (computed once per step rather than per RK4 stage — we
+    hold the intra-layer coupling constant across the 4 stages of
+    one dt, which is an acceptable numerical approximation for
+    dt ≪ 1/omega and gives a 4× reduction in matrix-vector cost).
+
+    ``tau_scale`` (when enabled) is the per-oscillator timescale
+    factor f_n that scales the dimensionless dynamical coefficients
+    (α, β1, β2, drive) into per-second units. Public domain: the
+    τₙ = 1/fₙ scaling is disclosed in US 7,376,562 (expired Nov 17,
+    2024). Effect: all oscillators integrate over the same number of
+    cycles (∼20) instead of the same number of seconds — fundamentally
+    correct for audio analysis where time resolution should scale
+    with frequency.
+    """
     sat_limit = 0.95 / max(epsilon, 1e-9)
     beta1c = complex(beta1, delta1)
     beta2c = complex(beta2, delta2)
     for i in range(n):
+        s = tau_scale[i] if tau_enabled else 1.0
         zi = z[i]
         abs2 = zi.real * zi.real + zi.imag * zi.imag
         abs2_sat = abs2 if abs2 < sat_limit else sat_limit
         denom = 1.0 - epsilon * abs2_sat
         cubic = beta1c * abs2
         quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
-        linear = complex(alpha, omega[i])
-        rhs = zi * (linear + cubic + quintic) + x[i]
+        # Per-oscillator τ scaling: (α + cubic + quintic) and drive
+        # scale by s = f_n; ω stays unscaled (already in rad/s).
+        linear = complex(s * alpha, omega[i])
+        rhs = zi * (linear + s * cubic + s * quintic) + s * x[i]
         if W_enabled:
             rhs = rhs + wz_scaled[i]
         if C_enabled:
@@ -186,6 +201,7 @@ def _rk4_step_jit(
     C: np.ndarray, C_enabled: bool, coupling_gain: float,
     P_scratch: np.ndarray, A_scratch: np.ndarray,
     internal_scratch: np.ndarray,
+    tau_scale: np.ndarray, tau_enabled: bool,
 ) -> None:
     """One RK4 advance, writing the result back into ``z`` in place.
     All scratch buffers are caller-supplied so heap allocation is
@@ -229,25 +245,29 @@ def _rk4_step_jit(
     _deriv_jit(z, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k1,
-               internal_scratch, C_enabled, coupling_gain)
+               internal_scratch, C_enabled, coupling_gain,
+               tau_scale, tau_enabled)
     for i in range(n):
         ztmp[i] = z[i] + 0.5 * dt * k1[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k2,
-               internal_scratch, C_enabled, coupling_gain)
+               internal_scratch, C_enabled, coupling_gain,
+               tau_scale, tau_enabled)
     for i in range(n):
         ztmp[i] = z[i] + 0.5 * dt * k2[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k3,
-               internal_scratch, C_enabled, coupling_gain)
+               internal_scratch, C_enabled, coupling_gain,
+               tau_scale, tau_enabled)
     for i in range(n):
         ztmp[i] = z[i] + dt * k3[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k4,
-               internal_scratch, C_enabled, coupling_gain)
+               internal_scratch, C_enabled, coupling_gain,
+               tau_scale, tau_enabled)
     dt_over_6 = dt / 6.0
     for i in range(n):
         z[i] = z[i] + dt_over_6 * (k1[i] + 2.0 * k2[i]
@@ -335,6 +355,8 @@ def _step_many_jit(
     P_scratch: np.ndarray,         # (n,) scratch for P_j = z_j/(1-√ε z_j)
     A_scratch: np.ndarray,         # (n,) scratch for A_i = 1/(1-√ε z̄_i)
     internal_scratch: np.ndarray,  # (n,) scratch for kernel result
+    tau_scale: np.ndarray,         # (n,) per-osc τ scale, 1.0 if disabled
+    tau_enabled: bool,             # whether to apply tau_scale
 ) -> int:
     """Advance ``z`` through ``len(xs)`` samples inside a single
     JIT call. All the per-sample Python overhead that dominated the
@@ -402,14 +424,15 @@ def _step_many_jit(
                 internal_scratch[i] = A_scratch[i] * acc
         # RK4 stage 1
         for i in range(n):
+            s = tau_scale[i] if tau_enabled else 1.0
             zi = z[i]
             abs2 = zi.real * zi.real + zi.imag * zi.imag
             abs2_sat = abs2 if abs2 < sat_limit else sat_limit
             denom = 1.0 - epsilon * abs2_sat
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
-            linear = complex(alpha, omega[i])
-            rhs = zi * (linear + cubic + quintic) + xs[t, i]
+            linear = complex(s * alpha, omega[i])
+            rhs = zi * (linear + s * cubic + s * quintic) + s * xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -419,14 +442,15 @@ def _step_many_jit(
             k1[i] = rhs
         # RK4 stage 2
         for i in range(n):
+            s = tau_scale[i] if tau_enabled else 1.0
             ztmp_i = z[i] + 0.5 * dt * k1[i]
             abs2 = ztmp_i.real * ztmp_i.real + ztmp_i.imag * ztmp_i.imag
             abs2_sat = abs2 if abs2 < sat_limit else sat_limit
             denom = 1.0 - epsilon * abs2_sat
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
-            linear = complex(alpha, omega[i])
-            rhs = ztmp_i * (linear + cubic + quintic) + xs[t, i]
+            linear = complex(s * alpha, omega[i])
+            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -436,14 +460,15 @@ def _step_many_jit(
             k2[i] = rhs
         # RK4 stage 3
         for i in range(n):
+            s = tau_scale[i] if tau_enabled else 1.0
             ztmp_i = z[i] + 0.5 * dt * k2[i]
             abs2 = ztmp_i.real * ztmp_i.real + ztmp_i.imag * ztmp_i.imag
             abs2_sat = abs2 if abs2 < sat_limit else sat_limit
             denom = 1.0 - epsilon * abs2_sat
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
-            linear = complex(alpha, omega[i])
-            rhs = ztmp_i * (linear + cubic + quintic) + xs[t, i]
+            linear = complex(s * alpha, omega[i])
+            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -453,14 +478,15 @@ def _step_many_jit(
             k3[i] = rhs
         # RK4 stage 4
         for i in range(n):
+            s = tau_scale[i] if tau_enabled else 1.0
             ztmp_i = z[i] + dt * k3[i]
             abs2 = ztmp_i.real * ztmp_i.real + ztmp_i.imag * ztmp_i.imag
             abs2_sat = abs2 if abs2 < sat_limit else sat_limit
             denom = 1.0 - epsilon * abs2_sat
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
-            linear = complex(alpha, omega[i])
-            rhs = ztmp_i * (linear + cubic + quintic) + xs[t, i]
+            linear = complex(s * alpha, omega[i])
+            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * xs[t, i]
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -530,6 +556,8 @@ class GrFNN:
         freqs: np.ndarray | None = None,
         coupling_kernel: np.ndarray | None = None,
         coupling_gain: float = 0.0,
+        per_oscillator_tau: bool = False,
+        tau_reference_hz: float = 1.0,
     ):
         # When ``freqs`` is provided, it fully determines the oscillator
         # layout — the pitch bank passes a 12-TET-aligned grid here so
@@ -622,6 +650,20 @@ class GrFNN:
             self._A_scratch = None
             self._internal_scratch = None
 
+        # Per-oscillator time scale τ_n = 1/f_n. When enabled, the
+        # dimensionless dynamical coefficients (α, β1, β2, drive) are
+        # scaled by f_n / tau_reference_hz per oscillator. Effect: all
+        # oscillators integrate over the same number of cycles
+        # (∼1/|α| × tau_reference_hz cycles) instead of the same
+        # number of seconds, which is fundamentally correct for audio
+        # analysis. Public domain (US 7,376,562, expired Nov 2024).
+        self.tau_enabled = bool(per_oscillator_tau)
+        if self.tau_enabled:
+            self.tau_scale = (self.f / max(float(tau_reference_hz), 1e-9)
+                              ).astype(np.float64)
+        else:
+            self.tau_scale = np.ones(n_oscillators, dtype=np.float64)
+
     def _deriv(self, z: np.ndarray, x: np.ndarray,
                delayed: np.ndarray | None = None) -> np.ndarray:
         p = self.p
@@ -689,6 +731,7 @@ class GrFNN:
             self._ztmp, self._wz_scaled,
             C_eff, self.coupling_enabled, self.coupling_gain,
             P_eff, A_eff, internal_eff,
+            self.tau_scale, self.tau_enabled,
         )
         if self.noise_amp > 0.0:
             # Complex Gaussian with amplitude proportional to sqrt(dt) for
@@ -784,6 +827,7 @@ class GrFNN:
             self.last_input_mag, self.last_residual,
             C_eff, self.coupling_enabled, self.coupling_gain,
             P_eff, A_eff, internal_eff,
+            self.tau_scale, self.tau_enabled,
         )
         if self.delay_enabled:
             self._delay_write = int(new_delay_write)

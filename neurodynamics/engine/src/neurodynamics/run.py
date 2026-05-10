@@ -113,6 +113,8 @@ def _build_grfnn(section: dict) -> GrFNN:
         freqs=freqs,
         coupling_kernel=coupling_kernel,
         coupling_gain=coupling_gain,
+        per_oscillator_tau=bool(section.get("per_oscillator_tau", False)),
+        tau_reference_hz=float(section.get("tau_reference_hz", 1.0)),
     )
 
 

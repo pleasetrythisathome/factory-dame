@@ -332,13 +332,18 @@ def test_voice_split_largest_inherits_id(base_freqs):
 
 def test_voice_merge_collapses_to_one_voice(base_freqs):
     """Two voices with different envelopes merge into one correlated
-    group. Current behavior: the merged cluster gets a fresh ID
-    because Jaccard distance to either parent (union vs each subset)
-    exceeds the match cost cap. Both parents are then kept as silent
-    voices for the persistence window. This is acceptable for the
-    modular use case — the consumer sees 'voice A and B both went
-    silent, new voice C appeared' — but it's worth documenting as a
-    known behavior rather than quietly assuming ID inheritance."""
+    group. After the harmonic-stack centroid heuristic landed: the
+    merged cluster's reported center_freq pins to the lower-freq
+    component (220 Hz, which is also a harmonic-stack-fundamental
+    relative to 880 Hz). The Hungarian matcher then pairs the merged
+    cluster with the 220 Hz parent (closer center_freq than the 880
+    Hz parent), so the 220-parent ID is INHERITED by the merged
+    voice; the 880-parent goes silent.
+
+    This is reasonable behavior for the modular use case — when two
+    sources merge harmonically, the lower (perceptual fundamental)
+    survives. The test documents this; downstream consumers should
+    not assume merge produces a fresh ID."""
     n_frames = 80
     t = np.linspace(0, 2 * np.pi, n_frames)
     env_a = 0.4 + 0.3 * np.sin(t)
@@ -360,12 +365,14 @@ def test_voice_merge_collapses_to_one_voice(base_freqs):
                               amp=0.4, seed=2)
     z2 = _add_noise(z_a2 + z_b2)
     state = extract_voices(_make_window(z2, base_freqs), prev_state=state)
-    # Key property: the merged cluster shows up as a single active
-    # voice (correlation test did its job), and both parent IDs are
-    # held as silent voices for the persistence window.
+    # Merged cluster shows up as a single active voice.
     assert len(state.active_voices) == 1
+    # Active voice center_freq pins to fundamental (220 Hz).
+    assert state.active_voices[0].center_freq < 400.0
+    # ID came from one of the parents; at least one parent went silent.
     silent_ids = {v.id for v in state.voices if not v.active}
-    assert parent_ids.issubset(silent_ids)
+    assert (state.active_voices[0].id in parent_ids
+            or parent_ids.issubset(silent_ids))
 
 
 # ── Robustness: dense voice count ──────────────────────────────────
@@ -462,18 +469,25 @@ def test_single_frame_window_returns_empty_voice_state(base_freqs):
 
 # ── Voice confidence and center frequency ─────────────────────────
 
-def test_voice_center_frequency_is_amplitude_weighted(base_freqs):
-    """A voice with a strong fundamental at 220 Hz and a weaker
-    harmonic at 440 Hz should report a center_freq closer to 220 Hz."""
+def test_voice_center_frequency_is_fundamental_when_harmonic_stack(base_freqs):
+    """A voice with a fundamental at 220 Hz and a harmonic at 440 Hz
+    should report center_freq AT the fundamental (220 Hz), not the
+    log-weighted mean. This is the perceptually-correct pitch — a saw
+    wave at A3 is "an A3 with overtones," not "a pitch between A3
+    and A4."
+
+    For non-harmonic clusters (e.g. unison detuning), the centroid
+    falls back to the amp-weighted geometric mean — see
+    test_voice_center_unison_amp_weighted."""
     z = _synthesize_voice(base_freqs, 220.0, harmonic_count=2, amp=0.8)
     z = _add_noise(z)
     state = extract_voices(_make_window(z, base_freqs))
     assert len(state.active_voices) == 1
     v = state.active_voices[0]
-    # Harmonic amplitudes are 1/1 and 1/2, so log-weighted mean lives
-    # between 220 and 440 but closer to 220 (since the fundamental is
-    # the brighter one).
-    assert 220.0 < v.center_freq < 330.0
+    # Should land within ±1 bin of 220 Hz (bin spacing varies by
+    # frequency in geomspace; nearest bins to 220 Hz at 100-osc
+    # 30-4000 Hz spacing are ~210 Hz and ~226 Hz).
+    assert 200.0 < v.center_freq < 230.0
 
 
 def test_voice_confidence_high_for_coherent_cluster(base_freqs):
