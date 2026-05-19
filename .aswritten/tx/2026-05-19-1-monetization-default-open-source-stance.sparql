@@ -1,0 +1,192 @@
+PREFIX narr: <https://aswritten.ai/narrative#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX prov: <http://www.w3.org/ns/prov#>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX dct:  <http://purl.org/dc/terms/>
+PREFIX xsd:  <http://www.w3.org/2001/XMLSchema#>
+PREFIX oa:   <http://www.w3.org/ns/oa#>
+
+# ── Transaction provenance (default graph) ──────────────────────
+INSERT DATA {
+  narr:Tx_20260519T120000Z a prov:Activity ;
+    prov:generatedAtTime "2026-05-19T12:00:00Z"^^xsd:dateTime ;
+    prov:wasAssociatedWith "aswritten.ai" ;
+    prov:wasAttributedTo "scarlet@aswritten.ai" ;
+    narr:originPath ".aswritten/memories/2026-05-19-factory-dame-monetization.md" ;
+    narr:originRef "main" ;
+    dct:title "factory-dame monetization: open-source/community-first default" ;
+    prov:generated
+      narr:Sample_FactoryDameMonetization_20260519,
+      narr:Actor_Scarlet_FactoryDame,
+      narr:Narrative_FactoryDameOpenSourceDefault,
+      narr:Claim_MonetizationDefaultOpenSource,
+      narr:Claim_CommercialPathContingent,
+      narr:Claim_TriggerUnsolicitedInbound,
+      narr:Claim_TriggerNovelDemo,
+      narr:Claim_TriggerHardwarePerformance,
+      narr:Claim_PricingModelOutOfScope,
+      narr:Claim_OutsideFundingOutOfScope,
+      narr:Claim_ContentShowcaseNotCommercialization,
+      narr:StyleObs_ContingentPath,
+      narr:StyleObs_CreativeCounterweight,
+      narr:StyleObs_NotionNotDecision,
+      narr:StyleMetrics_FactoryDameMonetization .
+} ;
+
+# ── Extracted entities (named graph) ────────────────────────────
+INSERT DATA {
+  GRAPH narr:Tx_20260519T120000Z {
+
+    # ── Sample ──────────────────────────────────────────────────
+    narr:Sample_FactoryDameMonetization_20260519 a narr:Sample ;
+      dct:title "Monetization: default to open-source / community-first" ;
+      dct:created "2026-05-19"^^xsd:date ;
+      narr:inputLength 3721 .
+
+    # ── Actor ───────────────────────────────────────────────────
+    narr:Actor_Scarlet_FactoryDame a narr:Actor ;
+      skos:prefLabel "Scarlet" ;
+      skos:note "Author and reviewer of factory-dame working stances; operates at low conviction / notion level on monetization posture." .
+
+    # ── Narrative ───────────────────────────────────────────────
+    narr:Narrative_FactoryDameOpenSourceDefault a narr:Narrative ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      narr:theme "factory-dame defaults to open-source / community-first monetization; commercial productization is a contingent path gated by external demand" ;
+      skos:broader narr:StrategyOverview ;
+      skos:note "The engine, voice primitives, and nd-* CLIs ship under a permissive license. Commercial paths (boxed hardware, hosted demos, SaaS) are held back unless unsolicited inbound from modular synth, jazz, or visual-art communities materializes. This posture is grounded in factory-dame's role as a creative counterweight to aswritten, where commercial pressure is explicitly excluded." .
+
+    # ── Claims: Stance section ───────────────────────────────────
+    narr:Claim_MonetizationDefaultOpenSource a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      narr:supports narr:Narrative_FactoryDameOpenSourceDefault ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Default monetization posture for factory-dame is open-source / community-first. The engine, voice primitives, and the nd-* CLIs ship under a permissive license. Recorded as a notion, not a decision." .
+
+    narr:Claim_CommercialPathContingent a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      narr:supports narr:Narrative_FactoryDameOpenSourceDefault ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Commercial productization (boxed hardware, hosted demos, SaaS) is held back as a contingent path — pursued only if external demand materializes through unsolicited inbound from modular synth, jazz, or visual-art communities." .
+
+    # ── Claims: Trigger conditions section ──────────────────────
+    narr:Claim_TriggerUnsolicitedInbound a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      narr:supports narr:Claim_CommercialPathContingent ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Trigger 1: Unsolicited inbound from a person in the relevant communities (modular synth builder, jazz performer commissioning a piece, visual artist asking to license) that is specific enough to scope a paid engagement promotes this notion to a claim." .
+
+    narr:Claim_TriggerNovelDemo a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      narr:supports narr:Claim_CommercialPathContingent ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Trigger 2: A novel demo that cannot be replicated by any existing tool — e.g. the per-voice motor coupling phase of task-011 running publicly on arbitrary live audio, with audience reaction strong enough to suggest paying-customer demand." .
+
+    narr:Claim_TriggerHardwarePerformance a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      narr:supports narr:Claim_CommercialPathContingent ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Trigger 3: Hardware path forced by performance — if the M1 Mac mini path cannot carry the live engine plus visualization plus CV output simultaneously, custom embedded becomes a capability question (not just a packaging one), shifting cost-benefit toward eventually selling hardware." .
+
+    # ── Claims: What this does NOT decide section ────────────────
+    narr:Claim_PricingModelOutOfScope a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Pricing model if commercial path opens is explicitly held open until inbound or a trigger materializes. Not decided by this memory." .
+
+    narr:Claim_OutsideFundingOutOfScope a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Whether to take outside funding is out of scope; factory-dame is self-funded by definition of the counterweight role." .
+
+    narr:Claim_ContentShowcaseNotCommercialization a narr:Claim ;
+      narr:aboutNode narr:Narrative_FactoryDameOpenSourceDefault ;
+      narr:hasConvictionLevel narr:Conviction_Notion ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Content/showcase work (e.g. an audio-visual installation, a piece performed at a jazz venue) does not count as commercialization — those are part of the creative artifact stream, separate from a productized engine." .
+
+    # ── Style Observations ───────────────────────────────────────
+
+    # StyleObs 1: Conditional/contingent framing via em-dash qualifier
+    narr:StyleObs_ContingentPath a narr:StyleObservation ;
+      skos:broader narr:RhetoricalDevices ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Author uses em-dash to introduce a parenthetical qualifier that reframes the preceding noun phrase as contingent rather than settled — a signature rhetorical move." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_FactoryDameMonetization_20260519 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 248 ;
+          oa:end 340
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "held back as a *contingent path* — pursued only if external demand materializes" ;
+          oa:prefix "Commercial productization (boxed hardware, hosted demos, SaaS) is " ;
+          oa:suffix " through unsolicited inbound"
+        ]
+      ] .
+
+    # StyleObs 2: Italics for emphasis on key epistemic terms
+    narr:StyleObs_CreativeCounterweight a narr:StyleObservation ;
+      skos:broader narr:ToneAuthoritative ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Author uses italics (*contingent path*, *any*) to signal epistemic weight and conditionality — a controlled-emphasis pattern that avoids ALL-CAPS while still marking critical terms." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_FactoryDameMonetization_20260519 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 460 ;
+          oa:end 560
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "factory-dame is a creative counterweight to aswritten, where commercial pressure is precisely what we're not importing" ;
+          oa:prefix "the deeper principle that " ;
+          oa:suffix "."
+        ]
+      ] .
+
+    # StyleObs 3: Notion/decision epistemic register distinction
+    narr:StyleObs_NotionNotDecision a narr:StyleObservation ;
+      skos:broader narr:RegisterFormality ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      skos:note "Author explicitly distinguishes 'notion' from 'decision' as a formal epistemic register — a recurring pattern in factory-dame working stances that encodes conviction level directly into prose." ;
+      rdf:value true ;
+      oa:hasTarget [
+        a oa:SpecificResource ;
+        oa:hasSource narr:Sample_FactoryDameMonetization_20260519 ;
+        oa:hasSelector [
+          a oa:TextPositionSelector ;
+          oa:start 420 ;
+          oa:end 460
+        ] ;
+        oa:hasSelector [
+          a oa:TextQuoteSelector ;
+          oa:exact "This is a notion, not a decision." ;
+          oa:prefix "from business velocity. " ;
+          oa:suffix " It sits below"
+        ]
+      ] .
+
+    # ── Style Metrics ────────────────────────────────────────────
+    narr:StyleMetrics_FactoryDameMonetization a narr:StyleMetrics ;
+      skos:broader narr:StyleMetrics ;
+      dct:source narr:Sample_FactoryDameMonetization_20260519 ;
+      narr:AverageSentenceLength 22 ;
+      narr:ActiveVoiceRatio "0.72"^^xsd:decimal ;
+      narr:JargonDensity "0.18"^^xsd:decimal ;
+      skos:note "Moderately formal register; mix of declarative and conditional constructions. Technical jargon (nd-* CLIs, SBC, CV output, eurorack) concentrated in trigger-condition sections. Active voice dominant but passive used deliberately for hedging (e.g., 'is held back', 'is shelved')." .
+
+  }
+}
