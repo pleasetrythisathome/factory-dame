@@ -384,6 +384,95 @@ flow is the boundary restated as a sequence.
 
 ---
 
+## Prior Art and Research
+
+This document scopes a perceptual-feature layer. It is not the first attempt to
+name the perceptual features of voice — and the strongest prior art is not
+academic.
+
+### Operationalized perceptual-feature frameworks — trans voice pedagogy
+
+Trans voice training has, out of practical necessity, produced the most
+operationalized vocabulary of voice perception that exists: a teacher there must
+give a learner *names* for perceptual features precise enough to consciously
+reshape them. The anchor reference is **Zheanna Erose / TransVoiceLessons** — a
+trained music composer who built her framework by applying acoustics and music
+theory to voice.
+
+The load-bearing contribution is her **three-lens model**: every voice feature
+is described across three frames at once —
+
+- **Sensory** — what it sounds like; the direct perceptual experience; the most
+  actionable frame for a human
+- **Acoustic** — what is measurable in the signal
+- **Biomechanical** — what physically produces it
+
+— and each feature is mapped across all three. *Weight*: sensory
+"heavy / light / dense" ↔ acoustic spectral tilt ↔ biomechanical vocal-fold
+mass. *Resonance / Size*: sensory "perceptual size" ↔ acoustic
+resonance-frequency shift ↔ vocal-tract chamber size. *Pitch*: high / low ↔ f0
+↔ vocal-fold oscillation rate.
+
+That cross-walk is the bridge this engine layer needs. The cascade produces the
+*acoustic* column; the paralinguistic interpretation downstream needs the
+*sensory* column — the words a listener actually uses. The three-lens model is a
+hand-built, pedagogically-validated mapping between them, for the voice domain.
+It also independently arrives at source-filter theory, the harmonic series, and
+resonance-as-eigenfrequency — it already expresses voice perception in the
+music/acoustics vocabulary the GrFNN engine uses.
+
+**Honest scope.** The framework is organized around *gender perception*. That
+does not make it niche: vocal weight, resonance, and the gendered quality of a
+voice are live conversational signals, modulated moment to moment, carrying
+affect, stance, and emphasis — they belong in the feature set. But the framework
+is *not an exhaustive map* of perceptual speech features; it under-develops
+prosody, intonation contour, rhythm, and other perception types. Take the
+**framework** — the three-lens cross-walk method — as fully generalizable; take
+the **feature set** as a real, conversational, but partial slice. The rest of
+the space is what the research brief below points at.
+
+The concrete artifact this implies: a percept ↔ acoustic **translation table** —
+Erose's terms (weight, size, R1) cross-walked to standard acoustic-phonetics
+(spectral tilt, formant-frequency shift, F1). Small, bounded, and genuinely the
+join between the engine's output and the interpretation layer's vocabulary.
+
+### Research brief — digging deeper
+
+Three literatures bear on this layer. This brief scopes them; a dedicated
+research pass should produce the vetted bibliography.
+
+1. **The trans-fem voice corpus.** Anchor: the TransVoiceLessons curriculum
+   (free and structured — "The Art of Voice Feminization" series) and the
+   Erose & Grigsby book-in-progress *The Art of Voice Alteration*. Also
+   AcousticGender.Space, which operationalizes the framework as an explicit 2-D
+   pitch × resonance perceptual space. The wider trans voice pedagogy community
+   has parallel operationalized vocabularies worth comparing. Value: the most
+   operationalized percept-side feature vocabulary available anywhere.
+
+2. **Academic research contextualizing trans voice in speech science.** Anchor:
+   *Speech After Gender: A Trans-Feminine Perspective on Next Steps for Speech
+   Science and Technology* (arXiv 2407.07235, 2024) — which independently adopts
+   the pitch / resonance / weight triad and notes that trans-feminine voice
+   teachers "have unique perspectives on voice that confound current
+   understandings." The academy reaching toward what the pedagogy already
+   operationalized; its citations are the entry point into the formal
+   literature.
+
+3. **Prosody and paralinguistics research.** The doc's largest coverage gap, and
+   where the deepest academic literature exists — the perception of intonation
+   contour, prosodic rhythm, stress, and of affect and stance in speech. The
+   auditory-mechanism side is already anchored by the engine's NRT / GrFNN
+   lineage (see the `docs/literature/` folder); the *speech-prosody* extension
+   of it is unwritten here. A research pass should pull prosody perception,
+   affective / paralinguistic prosody, and computational paralinguistics.
+
+The agenda for that pass: for each perceptual feature the interpretation layer
+will need, fill all three lenses (sensory / acoustic / biomechanical), and flag
+where the academic literature and the voice pedagogy carve the feature
+differently.
+
+---
+
 ## Sequencing and status
 
 This is a **later-stage track.** aswritten's near-term how-it-was-said work is
