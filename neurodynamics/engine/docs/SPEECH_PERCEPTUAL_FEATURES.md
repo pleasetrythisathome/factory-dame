@@ -445,9 +445,15 @@ research pass should produce the vetted bibliography.
    (free and structured — "The Art of Voice Feminization" series) and the
    Erose & Grigsby book-in-progress *The Art of Voice Alteration*. Also
    AcousticGender.Space, which operationalizes the framework as an explicit 2-D
-   pitch × resonance perceptual space. The wider trans voice pedagogy community
-   has parallel operationalized vocabularies worth comparing. Value: the most
-   operationalized percept-side feature vocabulary available anywhere.
+   pitch × resonance perceptual space. Beyond Erose, the **SumianVoice Voice
+   Resource Project** (`wiki.sumianvoice.com`, with a real-time spectrogram tool
+   at `spec.sumianvoice.com`) carries the broadest operationalized perceptual
+   taxonomy of the lot — pitch, resonance, weight, and a whole "clarity"
+   cluster: creak, breathiness, nasality, onsets, subharmonics,
+   false-vocal-fold control. SumianVoice is also the bridge to item 2: its
+   author, Sumi Koshin, co-authored *Speech After Gender*. Value: the most
+   operationalized percept-side feature vocabulary available anywhere — and
+   SumianVoice's taxonomy is the most complete single map.
 
 2. **Academic research contextualizing trans voice in speech science.** Anchor:
    *Speech After Gender: A Trans-Feminine Perspective on Next Steps for Speech
@@ -470,6 +476,65 @@ The agenda for that pass: for each perceptual feature the interpretation layer
 will need, fill all three lenses (sensory / acoustic / biomechanical), and flag
 where the academic literature and the voice pedagogy carve the feature
 differently.
+
+---
+
+## Test and Validation Corpus
+
+The corpus that validates this layer should span the perceptual operating
+envelope deliberately — the same discipline the engine's music-side Tier-A
+harness applies with controlled synthetic ground truth.
+
+### Controlled perceptual-sweep artifacts
+
+The highest-value test artifact is a single speaker deliberately modulating one
+voice across named perceptual parameters: content and speaker held constant,
+features swept on purpose. The exemplar is **L's Voice Training Guide** (signed
+"~L"; the top all-time post on r/transvoice), which opens with audio of one
+speaker sweeping roughly eight perceptual parameters — vocal-tract length, pitch
+and register, resonance, open quotient (the breathiness ↔ compression axis),
+intonation contour, articulation, twang, throat closure — **both combined and in
+isolation**. The isolation clips are the prize: each is near-ground-truth for a
+single feature. This is the speech counterpart of `synth_ground_truth.py` — a
+human parameter sweep in place of a synthetic tone. Trans voice pedagogy is a
+rich source of these, because teaching a feature *requires* demonstrating it in
+isolation.
+
+### Genre spread
+
+Beyond ordinary conversation, the corpus should span the prosodic dynamic range
+and the music↔speech boundary: poetry and heightened recitation (high-control,
+deliberate prosody), singing (the music↔speech bridge), instrumental music (the
+engine's existing home), normal conversation (the product's actual use case),
+and arguments (high-affect, fast, overlapping — the stress case). The spread is
+itself a test sweep: it exercises the engine across its full operating envelope
+rather than at one comfortable point.
+
+### Transcription-artifact cases
+
+Two classes, both wanted. (a) Audio that *breaks* transcription — overlapping
+speech, crosstalk, fast affect, strong accents — the inputs that produce garbled
+or lossy transcripts. (b) Audio paired with a transcript that *misrepresents*
+what was said — the sarcasm-flattened, hedge-laundered cases — so the layer is
+tested on recovering exactly what transcription loses. Class (b) is the
+on-thesis one: it is the failure this whole line of work exists to catch.
+
+### Starting sources
+
+- **Controlled sweeps** — L's guide and comparable trans voice demonstrations
+  (see *Prior Art and Research*); the genre is purpose-built for isolated
+  feature sweeps.
+- **Diverse general audio** — the audio-bank archive assembled for Tom
+  Whitwell's *Radio Music* Eurorack module: a large, deliberately heterogeneous
+  set (field recordings, music, spoken word, noise), already in the engine's
+  modular world, and a fast way to get genre breadth without curating from
+  scratch.
+- **Speech and prosody datasets** — a dedicated pass (per the research brief)
+  for prosody-labelled, conversational, and consented clinical corpora.
+
+This section names the corpus's shape, not its contents. The validation effort,
+when it starts, should build to this spread rather than to whatever is easiest
+to collect.
 
 ---
 
