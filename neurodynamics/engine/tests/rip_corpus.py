@@ -98,6 +98,8 @@ def run_engine(wav_path: Path, slug: str, *, force: bool = False) -> Path:
         "uv", "run", "nd-run",
         "--audio", str(wav_path),
         "--output", str(parquet_path),
+        "--no-osc",  # corpus rip is batch — OSC consumes ~30 % CPU
+                      # for no live consumer.
     ], cwd=ENGINE_DIR, check=True)
     return parquet_path
 

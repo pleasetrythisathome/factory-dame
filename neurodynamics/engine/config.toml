@@ -28,9 +28,29 @@ beta2 = -1.0
 delta1 = 0.0
 delta2 = 0.0
 epsilon = 1.0
-# Input coupling gain. Rhythm drive is a sparse onset signal so we push
-# hard to get oscillators into their limit-cycle regime.
-input_gain = 80.0
+# Input coupling gain. Calibrated for canonical input form where max
+# input is bounded by 1/√ε ≈ 1 at ε=1. Linear regime previously used
+# gain=80 because the linear drive multiplied tiny onset spikes by a
+# big factor without ceiling; canonical input ALWAYS saturates above
+# its 1/√ε pole. gain=2 gives meaningful drive into the resonance
+# region without permanently saturating every oscillator.
+input_gain = 2.0
+# Canonical nonlinear input (P(ε,x)·A(ε,z̄)) + integer-ratio coupling.
+# Needed for the missing-pulse phenomenon (Tal 2017): the bank must
+# generate cross-frequency resonance at the perceived pulse even when
+# stimulus energy is at off-pulse subdivisions. Without these, the
+# rhythm bank is essentially a linear filterbank and can't reproduce
+# Tal 2017's MEG findings.
+nonlinear_input = true
+
+[rhythm_grfnn.coupling]
+# Cross-tempo integer-ratio coupling — enables missing-pulse
+# emergence. Default gain modest so the bank doesn't self-resonate
+# in silence; sufficient to mode-lock perceived pulses.
+enabled = true
+gain = 0.3
+tolerance_semitones = 1.0
+max_octave_distance = 4.0
 
 [rhythm_grfnn.hebbian]
 # Attunement: weights between co-active rhythm oscillators strengthen over
@@ -58,14 +78,17 @@ seed = 0
 # rhythm-scale GrFNN modeling motor-cortex prediction, bidirectionally
 # coupled to the sensory rhythm layer. Sustains pulse activity across
 # audio silences and reinforces the felt beat.
+#
+# ASHLE motor (Roman et al. 2023): each motor oscillator's natural
+# frequency adapts toward the rate of sensory activity it sees, with
+# elasticity pulling back to its initial log-spaced rate. This lets
+# the motor layer track tempo changes within ~few cycles per Roman
+# 2023, mimicking the human "drift toward preferred tempo" effect.
 enabled = true
 n_oscillators = 50
 low_hz = 0.5
 high_hz = 10.0
 dt = 0.002
-# Lightly damped (less than sensory's -0.02) so motor sustains activity
-# across audio silences, but damped enough to avoid saturating at the
-# integrator clamp under continuous drive.
 alpha = -0.05
 beta1 = -1.0
 beta2 = -1.0
@@ -73,6 +96,12 @@ delta1 = 0.0
 delta2 = 0.0
 epsilon = 1.0
 input_gain = 1.0
+# ASHLE adaptive natural frequency (Roman 2023):
+adaptive_frequency = true
+adaptive_lambda_freq = 4.0      # Hebbian frequency-tracking rate
+adaptive_lambda_elastic = 2.0   # elasticity pull toward initial f_0
+adaptive_freq_min_ratio = 0.5
+adaptive_freq_max_ratio = 2.0
 # Forward (sensory → motor): sensory.z on mastered material peaks
 # nearer ~0.5 (not the 0.15 an earlier tuning assumed), so with the
 # original forward_gain=0.3 motor sat at its Hopf limit cycle the
@@ -111,6 +140,26 @@ dt = 0.0000625   # 16 kHz rate
 # extraction params alongside.
 per_oscillator_tau = true
 tau_reference_hz = 1.0
+# Canonical NRT nonlinear input form P(ε,x)·A(ε,z̄). Replaces the
+# linear `+ x` drive with the resonant-input transformation from
+# Large 2010 Eq. 15 / Lerud 2014 Eq. 2 / Kim & Large 2019 Eq. 15.
+# Unlocks harmonics, subharmonics, combination tones, and integer-
+# ratio mode-locking natively — the multi-frequency phenomenology
+# that the entire NRT framework is built around.
+#
+# Validated mathematically via test_canonical_input.py (1:2, 2:1,
+# 3:2 mode-locking, stability hierarchy). However, at our current
+# single-layer operating amplitudes (|z| max ~0.1, |x| max ~0.5),
+# canonical and linear produce indistinguishable engine state
+# (quick_canonical_diff.py: relative L2 difference ≈ 0). This is
+# expected — per Kim & Large 2019 Eq. 14, multi-frequency resonant
+# monomials scale as ε^((k+m-2)/2)·|z|^(m-1), which is negligible
+# at low |z|. The win comes when Phase 3 (multi-layer architecture)
+# puts cochlear oscillators at near-saturation amplitudes where
+# P·A becomes meaningfully different from linear x. Kept here as
+# infrastructure for Phase 3 / Phase 5; default false until that
+# regime is reached.
+nonlinear_input = true
 alpha = -0.05
 beta1 = -1.0
 beta2 = -1.0
@@ -142,15 +191,15 @@ bins_per_semitone = 3
 #
 # Public domain (US 7,376,562, expired Nov 2024).
 #
-# Disabled by default: the canonical P_m·A_n coupling form has near-
-# linear behavior at typical audio drive levels (|z|~0.04). Cross-
-# frequency phantom-fundamental generation requires |z| near
-# saturation (~0.95), which we do not reach at standard input_gain.
-# Sweep showed: gain 0–2 has no meaningful effect on engine state;
-# gain 5+ saturates the whole bank. Kept here as infrastructure for
-# future experiments at higher drive or for the Phase-5 Hebbian-
-# learned variant where connection strengths come from coactivity,
-# not pre-wired ratios.
+# Disabled in single-layer config: probe_harmonic_emergence.py
+# confirms the mechanism works (8× more 2:1 harmonic energy at
+# gain=1.0 + canonical input vs baseline) BUT integrating into the
+# single-layer pitch bank produces spurious voices — the bank
+# amplifies noise into ghost oscillations indistinguishable from
+# real input from voices.py's perspective. The architectural fix is
+# Phase 3 (separate cochlear nonlinear layer + cortical pitch layer)
+# so harmonic enrichment happens upstream of voice extraction.
+# Until Phase 3 lands, keep at gain=0.
 enabled = false
 gain = 0.0
 tolerance_semitones = 0.4
@@ -169,13 +218,91 @@ weight_decay = 0.02
 tau = 0.0
 gain = 0.0
 
+[brainstem_grfnn]
+# Phase 3: brainstem GrFNN layer per Lerud 2014. Parallel to the
+# pitch (cortical) layer — same input, different dynamics. The
+# brainstem operates in the critical Hopf regime (α=0, β₁=0, β₂=-1
+# per Lerud 2014 Section 3) with canonical input + integer-ratio
+# coupling enabled, producing the nonlinear FFR-style harmonic +
+# combination-tone enrichment that distinguishes NRT models from
+# linear filterbanks.
+#
+# Pitch (cortex) layer stays at subcritical-DLC, simpler dynamics
+# — its job is fundamental detection via mode-locking, not
+# harmonic generation. Voice extraction reads pitch (where each
+# fundamental shows as one peak), not brainstem (where harmonics
+# also light up).
+#
+# Enabled by default — Phase 3 demonstrates harmonic emergence
+# in the brainstem layer (canonical input + integer-ratio coupling
+# at gain=0.5 in critical Hopf regime). Validated via
+# `tests/test_brainstem_layer.py`: brainstem produces ~6.5×
+# more 2:1 harmonic energy than the parallel pitch layer when
+# driven by a pure 220 Hz tone. Broadcasts state via OSC at
+# `/brainstem/*`.
+enabled = true
+n_oscillators = 278
+low_hz = 20.0
+high_hz = 4186.0
+dt = 0.0000625
+per_oscillator_tau = true
+tau_reference_hz = 1.0
+# Critical Hopf per Lerud 2014: α=0, β₁=0 (no cubic), β₂=-1.
+# Only the quartic-saturating nonlinearity provides damping.
+alpha = 0.0
+beta1 = 0.0
+beta2 = -1.0
+delta1 = 0.0
+delta2 = 0.0
+epsilon = 0.5
+input_gain = 0.5
+nonlinear_input = true
+
+[brainstem_grfnn.tuning]
+a4_hz = 440.0
+bins_per_semitone = 3
+
+[brainstem_grfnn.coupling]
+# Enabled with moderate gain: generates harmonics via 1:n
+# resonant monomials at the brainstem stage, mirroring Lerud
+# 2014's brainstem mode-locking behavior.
+enabled = true
+gain = 0.5
+tolerance_semitones = 0.4
+max_octave_distance = 2.5
+
+[brainstem_grfnn.hebbian]
+# Brainstem is feedforward-only in Lerud 2014. No learning.
+enabled = false
+learn_rate = 0.0
+weight_decay = 0.0
+
+[brainstem_grfnn.delay]
+tau = 0.0
+gain = 0.0
+
+[brainstem_grfnn.noise]
+# Same symmetry-breaker as pitch.
+amp = 1e-5
+seed = 2
+
 [pitch_grfnn.noise]
-# Zeroed after diagnostic: with α=-0.05 (lightly damped, 20-second decay
-# time), noise.amp=0.01 accumulated into a steady ~0.03 "noise floor" on
-# every oscillator — the bank self-resonated in silence at 183/279 bins
-# above 0.01. That drowned real signal. Zeroed here; if phantom dynamics
-# need symmetry-breaking, re-introduce at 1e-4 or lower after testing.
-amp = 0.0
+# Minimal Gaussian noise per Phase 1.3 — restores symmetry breaking
+# for canonical NRT multi-frequency phenomena (Kim & Large 2019:
+# mode-locking from z=0 cannot bootstrap without noise) at an
+# amplitude well below the voice-extraction noise floor.
+#
+# Equilibrium |z| under α=-0.05 damping ≈ amp / √(2|α|) ≈ 3·amp.
+# At amp=1e-5, steady-state oscillator amplitude in silence ≈ 3e-5
+# — three orders of magnitude below voices.py threshold (0.01) and
+# 60 dB below typical drive levels. Safe symmetry-breaker.
+#
+# Historical context: amp=0.01 (the previous default) accumulated
+# to 0.03 amplitude in silence and drowned signal. amp=1e-4 (the
+# initial revised guess) was still ~0.0003 floor — borderline. 1e-5
+# is the conservative re-introduction. Per US 7,376,562 (expired
+# 2024-11): noise as symmetry breaker for stable fixed points.
+amp = 1e-5
 seed = 1
 
 [phantom]

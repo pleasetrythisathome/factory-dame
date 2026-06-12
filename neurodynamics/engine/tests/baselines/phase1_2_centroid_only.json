@@ -1,0 +1,178 @@
+{
+  "label": "phase1_2_centroid_only",
+  "captured_at": "2026-05-10T16:08:48.921384",
+  "engine_dir": "/Users/scarletdame/Code/fabrication/factory-dame/neurodynamics/engine",
+  "config_subset": {
+    "pitch_alpha": -0.05,
+    "pitch_beta1": -1.0,
+    "pitch_input_gain": 0.5,
+    "pitch_noise_amp": 0.0,
+    "pitch_n_oscillators": 278,
+    "snapshot_hz": 30
+  },
+  "tier_a": {
+    "per_pattern": {
+      "single": {
+        "coverage_pct": 100.0,
+        "phantom_pct": 92.85714285714286,
+        "median_cents_err": 5.766167706866853e-13,
+        "max_cents_err": 5.766167706866853e-13,
+        "triggers_total": 1,
+        "triggers_matched": 1
+      },
+      "quarter_notes": {
+        "coverage_pct": 62.5,
+        "phantom_pct": 47.36842105263158,
+        "median_cents_err": 5.766167706866853e-13,
+        "max_cents_err": 2.3064670827467422e-12,
+        "triggers_total": 16,
+        "triggers_matched": 10
+      },
+      "bassline": {
+        "coverage_pct": 6.25,
+        "phantom_pct": 95.0,
+        "median_cents_err": 3.722225396783027e-05,
+        "max_cents_err": 3.722225396783027e-05,
+        "triggers_total": 16,
+        "triggers_matched": 1
+      },
+      "chord_progression": {
+        "coverage_pct": 41.666666666666664,
+        "phantom_pct": 50.63291139240506,
+        "median_cents_err": 42.039471273925166,
+        "max_cents_err": 194.50565530018486,
+        "triggers_total": 12,
+        "triggers_matched": 5
+      },
+      "polyrhythm": {
+        "coverage_pct": 23.333333333333332,
+        "phantom_pct": 46.666666666666664,
+        "median_cents_err": 7.688223609155801e-13,
+        "max_cents_err": 7.688223609155801e-13,
+        "triggers_total": 30,
+        "triggers_matched": 7
+      },
+      "sustained_chord": {
+        "coverage_pct": 66.66666666666667,
+        "phantom_pct": 88.23529411764706,
+        "median_cents_err": 24.4106098668302,
+        "max_cents_err": 48.82112246448339,
+        "triggers_total": 3,
+        "triggers_matched": 2
+      },
+      "polyphonic_duet": {
+        "coverage_pct": 20.0,
+        "phantom_pct": 83.05084745762711,
+        "median_cents_err": 49.99999999999999,
+        "max_cents_err": 99.99996277774602,
+        "triggers_total": 10,
+        "triggers_matched": 2
+      },
+      "harmonic_stack": {
+        "coverage_pct": 25.0,
+        "phantom_pct": 88.23529411764706,
+        "median_cents_err": 0.0,
+        "max_cents_err": 0.0,
+        "triggers_total": 4,
+        "triggers_matched": 1
+      },
+      "phantom_fundamental": {
+        "coverage_pct": 0.0,
+        "phantom_pct": 100.0,
+        "median_cents_err": null,
+        "max_cents_err": null,
+        "triggers_total": 3,
+        "triggers_matched": 0
+      },
+      "vibrato": {
+        "coverage_pct": 1.6666666666666667,
+        "phantom_pct": 92.85714285714286,
+        "median_cents_err": 29.999999999998835,
+        "max_cents_err": 29.999999999998835,
+        "triggers_total": 60,
+        "triggers_matched": 1
+      },
+      "glissando": {
+        "coverage_pct": 0.0,
+        "phantom_pct": 0.0,
+        "median_cents_err": null,
+        "max_cents_err": null,
+        "triggers_total": 100,
+        "triggers_matched": 0
+      }
+    },
+    "aggregate": {
+      "mean_coverage_pct": 31.5530303030303,
+      "mean_phantom_pct": 71.3548836835373
+    }
+  },
+  "tier_b": {
+    "per_track": {
+      "four_tet_angel_echoes": {
+        "mean_voices": 4.5843373493975905,
+        "max_voices": 11,
+        "unique_ids": 20,
+        "mean_peak_amp": 0.23697979748249054,
+        "mean_median_amp": 0.018414774909615517,
+        "freq_lo": 65.73299115368833,
+        "freq_hi": 932.3275150000011,
+        "median_voice_lifespan_frames": 38,
+        "median_voice_lifespan_s": 7.6000000000000005
+      },
+      "fred_again_marea": {
+        "mean_voices": 10.873493975903614,
+        "max_voices": 19,
+        "unique_ids": 39,
+        "mean_peak_amp": 0.34948235750198364,
+        "mean_median_amp": 0.03260830417275429,
+        "freq_lo": 28.579627999999992,
+        "freq_hi": 961.7461587379971,
+        "median_voice_lifespan_frames": 45,
+        "median_voice_lifespan_s": 9.0
+      },
+      "burial_archangel": {
+        "mean_voices": 6.385542168674699,
+        "max_voices": 20,
+        "unique_ids": 53,
+        "mean_peak_amp": 0.246610626578331,
+        "mean_median_amp": 0.02343812584877014,
+        "freq_lo": 29.701642999999997,
+        "freq_hi": 1661.2187499999993,
+        "median_voice_lifespan_frames": 14,
+        "median_voice_lifespan_s": 2.8000000000000003
+      },
+      "disclosure_latch": {
+        "mean_voices": 8.572289156626505,
+        "max_voices": 29,
+        "unique_ids": 64,
+        "mean_peak_amp": 0.26487287878990173,
+        "mean_median_amp": 0.025293411687016487,
+        "freq_lo": 33.98709900000001,
+        "freq_hi": 2093.004639,
+        "median_voice_lifespan_frames": 11,
+        "median_voice_lifespan_s": 2.2
+      },
+      "daft_punk_da_funk": {
+        "mean_voices": 3.825301204819277,
+        "max_voices": 12,
+        "unique_ids": 28,
+        "mean_peak_amp": 0.22792716324329376,
+        "mean_median_amp": 0.020631518214941025,
+        "freq_lo": 44.50218199999998,
+        "freq_hi": 2349.318115,
+        "median_voice_lifespan_frames": 15,
+        "median_voice_lifespan_s": 3.0
+      }
+    }
+  },
+  "tier_c": {
+    "audio_duration_s": 30.0,
+    "processing_time_s": 53.965207249857485,
+    "realtime_factor": 0.555913736439495,
+    "voice_count_mean": 5.536324786324786,
+    "voice_count_max": 13,
+    "voice_count_min": 1,
+    "voice_count_p50": 5.0,
+    "voice_count_p95": 9.0
+  }
+}

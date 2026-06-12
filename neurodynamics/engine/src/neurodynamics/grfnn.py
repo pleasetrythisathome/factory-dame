@@ -146,6 +146,7 @@ def _deriv_jit(
     out: np.ndarray,
     internal_coupling: np.ndarray, C_enabled: bool, coupling_gain: float,
     tau_scale: np.ndarray, tau_enabled: bool,
+    canonical_drive: np.ndarray, nonlinear_input: bool,
 ) -> None:
     """Hopf RHS per oscillator.
 
@@ -163,6 +164,15 @@ def _deriv_jit(
     cycles (∼20) instead of the same number of seconds — fundamentally
     correct for audio analysis where time resolution should scale
     with frequency.
+
+    ``canonical_drive`` (when ``nonlinear_input`` is True) is the
+    precomputed per-oscillator canonical input transformation
+    P(ε,x)·A(ε,z̄) = x/(1-√ε x) · 1/(1-√ε z̄). It replaces the linear
+    ``x`` term entirely. The expansion of P·A generates resonant drive
+    at all integer ratios of input to oscillator frequency — the
+    mechanism behind harmonic enrichment, subharmonic mode-locking,
+    and missing-fundamental perception. Per Large 2010 Eq. 15, Lerud
+    2014 Eq. 2, Kim & Large 2019 Eq. 15.
     """
     sat_limit = 0.95 / max(epsilon, 1e-9)
     beta1c = complex(beta1, delta1)
@@ -178,7 +188,11 @@ def _deriv_jit(
         # Per-oscillator τ scaling: (α + cubic + quintic) and drive
         # scale by s = f_n; ω stays unscaled (already in rad/s).
         linear = complex(s * alpha, omega[i])
-        rhs = zi * (linear + s * cubic + s * quintic) + s * x[i]
+        if nonlinear_input:
+            drive = canonical_drive[i]
+        else:
+            drive = x[i]
+        rhs = zi * (linear + s * cubic + s * quintic) + s * drive
         if W_enabled:
             rhs = rhs + wz_scaled[i]
         if C_enabled:
@@ -202,6 +216,11 @@ def _rk4_step_jit(
     P_scratch: np.ndarray, A_scratch: np.ndarray,
     internal_scratch: np.ndarray,
     tau_scale: np.ndarray, tau_enabled: bool,
+    nonlinear_input: bool, P_input_scratch: np.ndarray,
+    canonical_drive: np.ndarray,
+    C_csr_row_start: np.ndarray,
+    C_csr_col: np.ndarray,
+    C_csr_val: np.ndarray,
 ) -> None:
     """One RK4 advance, writing the result back into ``z`` in place.
     All scratch buffers are caller-supplied so heap allocation is
@@ -219,7 +238,24 @@ def _rk4_step_jit(
             for j in range(n):
                 acc += W[i, j] * z[j]
             wz_scaled[i] = acc * inv_n
-    # Compute integer-ratio internal coupling once per step.
+    # Precompute A_i = 1/(1-√ε z̄_i) when needed by either the
+    # integer-ratio coupling kernel OR the canonical nonlinear input
+    # form. The two consumers share the same A factor (per Large 2015
+    # Eq. 2 / Lerud 2014 Eq. 2).
+    need_A = C_enabled or nonlinear_input
+    if need_A:
+        sqrt_eps = np.sqrt(max(epsilon, 1e-9))
+        eps_guard = 1e-12
+        for i in range(n):
+            zc = complex(z[i].real, -z[i].imag)
+            d2 = 1.0 - sqrt_eps * zc
+            d2_mag2 = d2.real * d2.real + d2.imag * d2.imag
+            if d2_mag2 < eps_guard:
+                A_scratch[i] = 0.0 + 0.0j
+            else:
+                A_scratch[i] = 1.0 / d2
+    # Integer-ratio internal coupling: P_z = z_j/(1-√ε z_j), then
+    # internal_i = A_i · Σ_j C[i,j] · P_z[j]. CSR sparse matvec.
     if C_enabled:
         sqrt_eps = np.sqrt(max(epsilon, 1e-9))
         eps_guard = 1e-12
@@ -230,44 +266,57 @@ def _rk4_step_jit(
                 P_scratch[i] = 0.0 + 0.0j
             else:
                 P_scratch[i] = z[i] / d
-            zc = complex(z[i].real, -z[i].imag)
-            d2 = 1.0 - sqrt_eps * zc
-            d2_mag2 = d2.real * d2.real + d2.imag * d2.imag
-            if d2_mag2 < eps_guard:
-                A_scratch[i] = 0.0 + 0.0j
-            else:
-                A_scratch[i] = 1.0 / d2
         for i in range(n):
             acc = 0.0 + 0.0j
-            for j in range(n):
-                acc += C[i, j] * P_scratch[j]
+            row_lo = C_csr_row_start[i]
+            row_hi = C_csr_row_start[i + 1]
+            for k in range(row_lo, row_hi):
+                acc += C_csr_val[k] * P_scratch[C_csr_col[k]]
             internal_scratch[i] = A_scratch[i] * acc
+    # Canonical nonlinear input: drive_i = P(ε, x_i)·A(ε, z̄_i)
+    # where P(ε, x) = x/(1-√ε x). Held constant across RK4 stages
+    # (same approximation as W and C — valid when dt ≪ 1/ω).
+    if nonlinear_input:
+        sqrt_eps = np.sqrt(max(epsilon, 1e-9))
+        eps_guard = 1e-12
+        for i in range(n):
+            d = 1.0 - sqrt_eps * x[i]
+            d_mag2 = d.real * d.real + d.imag * d.imag
+            if d_mag2 < eps_guard:
+                P_input_scratch[i] = 0.0 + 0.0j
+            else:
+                P_input_scratch[i] = x[i] / d
+            canonical_drive[i] = P_input_scratch[i] * A_scratch[i]
     _deriv_jit(z, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k1,
                internal_scratch, C_enabled, coupling_gain,
-               tau_scale, tau_enabled)
+               tau_scale, tau_enabled,
+               canonical_drive, nonlinear_input)
     for i in range(n):
         ztmp[i] = z[i] + 0.5 * dt * k1[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k2,
                internal_scratch, C_enabled, coupling_gain,
-               tau_scale, tau_enabled)
+               tau_scale, tau_enabled,
+               canonical_drive, nonlinear_input)
     for i in range(n):
         ztmp[i] = z[i] + 0.5 * dt * k2[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k3,
                internal_scratch, C_enabled, coupling_gain,
-               tau_scale, tau_enabled)
+               tau_scale, tau_enabled,
+               canonical_drive, nonlinear_input)
     for i in range(n):
         ztmp[i] = z[i] + dt * k3[i]
     _deriv_jit(ztmp, x, omega, alpha, beta1, beta2,
                delta1, delta2, epsilon, wz_scaled, W_enabled, n,
                delayed, delay_enabled, delay_gain, k4,
                internal_scratch, C_enabled, coupling_gain,
-               tau_scale, tau_enabled)
+               tau_scale, tau_enabled,
+               canonical_drive, nonlinear_input)
     dt_over_6 = dt / 6.0
     for i in range(n):
         z[i] = z[i] + dt_over_6 * (k1[i] + 2.0 * k2[i]
@@ -357,6 +406,14 @@ def _step_many_jit(
     internal_scratch: np.ndarray,  # (n,) scratch for kernel result
     tau_scale: np.ndarray,         # (n,) per-osc τ scale, 1.0 if disabled
     tau_enabled: bool,             # whether to apply tau_scale
+    nonlinear_input: bool,         # canonical input form P(ε,x)·A(ε,z̄)
+    P_input_scratch: np.ndarray,   # (n,) scratch for P(ε, x_i)
+    canonical_drive: np.ndarray,   # (n,) scratch for P_input_i · A_i
+    record_z: bool,                # write per-sample z to history
+    z_history: np.ndarray,         # (n_samples, n) out or (0, 0)
+    C_csr_row_start: np.ndarray,   # (n+1,) CSR row pointers
+    C_csr_col: np.ndarray,         # (nnz,) CSR column indices
+    C_csr_val: np.ndarray,         # (nnz,) CSR values
 ) -> int:
     """Advance ``z`` through ``len(xs)`` samples inside a single
     JIT call. All the per-sample Python overhead that dominated the
@@ -397,11 +454,21 @@ def _step_many_jit(
                 for j in range(n):
                     acc += W[i, j] * z[j]
                 wz_scaled[i] = acc * inv_n
-        # Compute integer-ratio internal coupling once per step (held
-        # constant across the 4 RK4 stages — same approximation as W).
-        # For oscillator i: internal_i = A_i · Σ_j C[i,j] · P_j where
-        # P_j = z_j/(1-√ε z_j), A_i = 1/(1-√ε z̄_i). Series expansion
-        # of P*A captures all integer-ratio resonances naturally.
+        # Precompute A_i = 1/(1-√ε z̄_i) when needed by either
+        # integer-ratio coupling OR canonical nonlinear input.
+        need_A = C_enabled or nonlinear_input
+        if need_A:
+            for i in range(n):
+                zc = complex(z[i].real, -z[i].imag)
+                d2 = 1.0 - sqrt_eps * zc
+                d2_mag2 = d2.real * d2.real + d2.imag * d2.imag
+                if d2_mag2 < eps_guard:
+                    A_scratch[i] = 0.0 + 0.0j
+                else:
+                    A_scratch[i] = 1.0 / d2
+        # Integer-ratio internal coupling: P_z = z_j/(1-√ε z_j), then
+        # internal_i = A_i · Σ_j C[i,j] · P_z[j]. Series expansion of
+        # P*A captures all integer-ratio resonances naturally.
         if C_enabled:
             for i in range(n):
                 d = 1.0 - sqrt_eps * z[i]
@@ -410,18 +477,28 @@ def _step_many_jit(
                     P_scratch[i] = 0.0 + 0.0j
                 else:
                     P_scratch[i] = z[i] / d
-                zc = complex(z[i].real, -z[i].imag)
-                d2 = 1.0 - sqrt_eps * zc
-                d2_mag2 = d2.real * d2.real + d2.imag * d2.imag
-                if d2_mag2 < eps_guard:
-                    A_scratch[i] = 0.0 + 0.0j
-                else:
-                    A_scratch[i] = 1.0 / d2
+            # CSR sparse matvec: ~9× faster than dense at our typical
+            # 10% non-zero coupling density.
             for i in range(n):
                 acc = 0.0 + 0.0j
-                for j in range(n):
-                    acc += C[i, j] * P_scratch[j]
+                row_lo = C_csr_row_start[i]
+                row_hi = C_csr_row_start[i + 1]
+                for k in range(row_lo, row_hi):
+                    acc += C_csr_val[k] * P_scratch[C_csr_col[k]]
                 internal_scratch[i] = A_scratch[i] * acc
+        # Canonical nonlinear input: drive_i = P(ε, x_i)·A(ε, z̄_i)
+        # where P(ε, x) = x/(1-√ε x). Per Large 2010 Eq. 15, Lerud
+        # 2014 Eq. 2, Kim & Large 2019 Eq. 15. Held constant across
+        # RK4 stages (same approximation as W and C).
+        if nonlinear_input:
+            for i in range(n):
+                d = 1.0 - sqrt_eps * xs[t, i]
+                d_mag2 = d.real * d.real + d.imag * d.imag
+                if d_mag2 < eps_guard:
+                    P_input_scratch[i] = 0.0 + 0.0j
+                else:
+                    P_input_scratch[i] = xs[t, i] / d
+                canonical_drive[i] = P_input_scratch[i] * A_scratch[i]
         # RK4 stage 1
         for i in range(n):
             s = tau_scale[i] if tau_enabled else 1.0
@@ -432,7 +509,11 @@ def _step_many_jit(
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
             linear = complex(s * alpha, omega[i])
-            rhs = zi * (linear + s * cubic + s * quintic) + s * xs[t, i]
+            if nonlinear_input:
+                drive = canonical_drive[i]
+            else:
+                drive = xs[t, i]
+            rhs = zi * (linear + s * cubic + s * quintic) + s * drive
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -450,7 +531,11 @@ def _step_many_jit(
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
             linear = complex(s * alpha, omega[i])
-            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * xs[t, i]
+            if nonlinear_input:
+                drive = canonical_drive[i]
+            else:
+                drive = xs[t, i]
+            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * drive
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -468,7 +553,11 @@ def _step_many_jit(
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
             linear = complex(s * alpha, omega[i])
-            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * xs[t, i]
+            if nonlinear_input:
+                drive = canonical_drive[i]
+            else:
+                drive = xs[t, i]
+            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * drive
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -486,7 +575,11 @@ def _step_many_jit(
             cubic = beta1c * abs2
             quintic = epsilon * beta2c * abs2_sat * abs2_sat / denom
             linear = complex(s * alpha, omega[i])
-            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * xs[t, i]
+            if nonlinear_input:
+                drive = canonical_drive[i]
+            else:
+                drive = xs[t, i]
+            rhs = ztmp_i * (linear + s * cubic + s * quintic) + s * drive
             if W_enabled:
                 rhs = rhs + wz_scaled[i]
             if C_enabled:
@@ -513,6 +606,10 @@ def _step_many_jit(
             re = z[i].real; im = z[i].imag
             zmag = (re * re + im * im) ** 0.5
             last_residual[i] = last_input_mag[i] - abs_alpha * zmag
+        # Record per-sample z to history (for cascaded multi-layer)
+        if record_z:
+            for i in range(n):
+                z_history[t, i] = z[i]
         # Delay ring-buffer: write new z over the oldest slot
         if delay_enabled and delay_depth > 0:
             for i in range(n):
@@ -558,6 +655,12 @@ class GrFNN:
         coupling_gain: float = 0.0,
         per_oscillator_tau: bool = False,
         tau_reference_hz: float = 1.0,
+        nonlinear_input: bool = False,
+        adaptive_frequency: bool = False,
+        adaptive_lambda_freq: float = 4.0,
+        adaptive_lambda_elastic: float = 2.0,
+        adaptive_freq_min_ratio: float = 0.5,
+        adaptive_freq_max_ratio: float = 2.0,
     ):
         # When ``freqs`` is provided, it fully determines the oscillator
         # layout — the pitch bank passes a 12-TET-aligned grid here so
@@ -642,13 +745,54 @@ class GrFNN:
                     f"({n_oscillators}, {n_oscillators})"
                 )
             self._P_scratch = np.empty(n_oscillators, dtype=np.complex128)
-            self._A_scratch = np.empty(n_oscillators, dtype=np.complex128)
             self._internal_scratch = np.empty(n_oscillators, dtype=np.complex128)
+            # Sparse (CSR) representation of C — coupling kernels are
+            # ~10% non-zero (local kernel limits + integer-ratio
+            # selectivity). Dense per-row inner products dominated
+            # the hot path; sparse iteration is ~9× faster at typical
+            # density.
+            nonzero_per_row = (np.abs(self.C) > 0).sum(axis=1)
+            self._C_sparse_row_start = np.zeros(
+                n_oscillators + 1, dtype=np.int64
+            )
+            self._C_sparse_row_start[1:] = np.cumsum(nonzero_per_row)
+            total_nnz = int(self._C_sparse_row_start[-1])
+            self._C_sparse_col = np.zeros(total_nnz, dtype=np.int64)
+            self._C_sparse_val = np.zeros(total_nnz, dtype=np.complex128)
+            idx = 0
+            for i in range(n_oscillators):
+                for j in range(n_oscillators):
+                    c_ij = self.C[i, j]
+                    if c_ij != 0:
+                        self._C_sparse_col[idx] = j
+                        self._C_sparse_val[idx] = c_ij
+                        idx += 1
         else:
             self.C = None
             self._P_scratch = None
-            self._A_scratch = None
             self._internal_scratch = None
+            self._C_sparse_row_start = None
+            self._C_sparse_col = None
+            self._C_sparse_val = None
+
+        # Canonical nonlinear input transformation P(ε,x)·A(ε,z̄).
+        # When enabled, external stimulus enters via the canonical NRT
+        # form rather than linearly. Generates harmonics, subharmonics,
+        # combination frequencies, and 1:n mode-locking natively. Per
+        # Large 2010 Eq. 15, Lerud 2014 Eq. 2, Kim & Large 2019 Eq. 15.
+        self.nonlinear_input = bool(nonlinear_input)
+        if self.nonlinear_input:
+            self._P_input_scratch = np.empty(n_oscillators, dtype=np.complex128)
+            self._canonical_drive = np.empty(n_oscillators, dtype=np.complex128)
+        else:
+            self._P_input_scratch = None
+            self._canonical_drive = None
+        # A_i = 1/(1-√ε z̄_i) is shared between integer-ratio coupling
+        # and canonical input. Allocate when either is enabled.
+        if self.coupling_enabled or self.nonlinear_input:
+            self._A_scratch = np.empty(n_oscillators, dtype=np.complex128)
+        else:
+            self._A_scratch = None
 
         # Per-oscillator time scale τ_n = 1/f_n. When enabled, the
         # dimensionless dynamical coefficients (α, β1, β2, drive) are
@@ -664,6 +808,27 @@ class GrFNN:
         else:
             self.tau_scale = np.ones(n_oscillators, dtype=np.float64)
 
+        # Adaptive natural frequencies per Roman et al. 2023 (ASHLE).
+        # Each oscillator's natural frequency f_i tracks the
+        # instantaneous frequency of its drive when driven, then
+        # elastically returns to its original value f_0_i in absence
+        # of drive. Implements the simplest single-osc-per-bank ASHLE
+        # form on the bank as a whole — each oscillator behaves like
+        # an independent ASHLE sensory tracker with f_0 = its initial
+        # log-spaced frequency.
+        #
+        # Equation per oscillator (Roman 2023):
+        #   ḟ = f · (λ₁ |x| sin(φ_x − φ_z) − λ_e (exp((f − f_0)/f_0) − 1))
+        # First term: Hebbian frequency learning toward drive phase
+        # rate (scaled by drive amplitude so silent osc doesn't drift)
+        # Second term: elasticity — exponential pull back to f_0.
+        self.adaptive_freq_enabled = bool(adaptive_frequency)
+        self.f_natural = self.f.copy()
+        self.adaptive_lambda_freq = float(adaptive_lambda_freq)
+        self.adaptive_lambda_elastic = float(adaptive_lambda_elastic)
+        self.adaptive_freq_min_ratio = float(adaptive_freq_min_ratio)
+        self.adaptive_freq_max_ratio = float(adaptive_freq_max_ratio)
+
     def _deriv(self, z: np.ndarray, x: np.ndarray,
                delayed: np.ndarray | None = None) -> np.ndarray:
         p = self.p
@@ -673,7 +838,14 @@ class GrFNN:
         cubic = (p.beta1 + 1j * p.delta1) * abs2
         quintic = p.epsilon * (p.beta2 + 1j * p.delta2) * abs2_sat * abs2_sat / denom
         linear = p.alpha + 1j * self.omega
-        rhs = z * (linear + cubic + quintic) + x
+        if self.nonlinear_input:
+            sqrt_eps = np.sqrt(max(p.epsilon, 1e-9))
+            P_in = x / (1.0 - sqrt_eps * x + 1e-12)
+            A_z = 1.0 / (1.0 - sqrt_eps * z.conj() + 1e-12)
+            drive = P_in * A_z
+        else:
+            drive = x
+        rhs = z * (linear + cubic + quintic) + drive
         if self.W is not None:
             # Mean-field normalization: divide by n so the intra-layer
             # coupling term is the AVERAGE partner contribution, not the
@@ -713,13 +885,27 @@ class GrFNN:
         if self.coupling_enabled:
             C_eff = self.C
             P_eff = self._P_scratch
-            A_eff = self._A_scratch
             internal_eff = self._internal_scratch
+            csr_row = self._C_sparse_row_start
+            csr_col = self._C_sparse_col
+            csr_val = self._C_sparse_val
         else:
             C_eff = _EMPTY_C
             P_eff = np.empty(0, dtype=np.complex128)
-            A_eff = np.empty(0, dtype=np.complex128)
             internal_eff = np.empty(0, dtype=np.complex128)
+            csr_row = np.zeros(1, dtype=np.int64)
+            csr_col = np.zeros(0, dtype=np.int64)
+            csr_val = np.zeros(0, dtype=np.complex128)
+        if self.coupling_enabled or self.nonlinear_input:
+            A_eff = self._A_scratch
+        else:
+            A_eff = np.empty(0, dtype=np.complex128)
+        if self.nonlinear_input:
+            P_input_eff = self._P_input_scratch
+            canonical_eff = self._canonical_drive
+        else:
+            P_input_eff = np.empty(0, dtype=np.complex128)
+            canonical_eff = np.empty(0, dtype=np.complex128)
         _rk4_step_jit(
             self.z, x, self.omega,
             p.alpha, p.beta1, p.beta2, p.delta1, p.delta2, p.epsilon,
@@ -732,6 +918,8 @@ class GrFNN:
             C_eff, self.coupling_enabled, self.coupling_gain,
             P_eff, A_eff, internal_eff,
             self.tau_scale, self.tau_enabled,
+            self.nonlinear_input, P_input_eff, canonical_eff,
+            csr_row, csr_col, csr_val,
         )
         if self.noise_amp > 0.0:
             # Complex Gaussian with amplitude proportional to sqrt(dt) for
@@ -751,7 +939,7 @@ class GrFNN:
         self.last_residual = (self.last_input_mag
                               - abs(self.p.alpha) * np.abs(self.z))
         if self.W is not None:
-            self._hebbian_update()
+            self._hebbian_update(n_steps=1)
         if self.delay_enabled:
             # Ring buffer: write new z over the slot just read (now the oldest).
             self.delay_buffer[self._delay_write] = self.z
@@ -803,15 +991,30 @@ class GrFNN:
         if self.coupling_enabled:
             C_eff = self.C
             P_eff = self._P_scratch
-            A_eff = self._A_scratch
             internal_eff = self._internal_scratch
+            csr_row = self._C_sparse_row_start
+            csr_col = self._C_sparse_col
+            csr_val = self._C_sparse_val
         else:
             C_eff = _EMPTY_C
             P_eff = np.empty(0, dtype=np.complex128)
-            A_eff = np.empty(0, dtype=np.complex128)
             internal_eff = np.empty(0, dtype=np.complex128)
+            csr_row = np.zeros(1, dtype=np.int64)
+            csr_col = np.zeros(0, dtype=np.int64)
+            csr_val = np.zeros(0, dtype=np.complex128)
+        if self.coupling_enabled or self.nonlinear_input:
+            A_eff = self._A_scratch
+        else:
+            A_eff = np.empty(0, dtype=np.complex128)
+        if self.nonlinear_input:
+            P_input_eff = self._P_input_scratch
+            canonical_eff = self._canonical_drive
+        else:
+            P_input_eff = np.empty(0, dtype=np.complex128)
+            canonical_eff = np.empty(0, dtype=np.complex128)
         # Ensure xs is complex128 (JIT doesn't coerce).
         xs = np.ascontiguousarray(xs, dtype=np.complex128)
+        empty_history = np.zeros((0, 0), dtype=np.complex128)
         new_delay_write = _step_many_jit(
             self.z, xs, self.omega,
             p.alpha, p.beta1, p.beta2, p.delta1, p.delta2, p.epsilon,
@@ -828,23 +1031,206 @@ class GrFNN:
             C_eff, self.coupling_enabled, self.coupling_gain,
             P_eff, A_eff, internal_eff,
             self.tau_scale, self.tau_enabled,
+            self.nonlinear_input, P_input_eff, canonical_eff,
+            False, empty_history,
+            csr_row, csr_col, csr_val,
         )
         if self.delay_enabled:
             self._delay_write = int(new_delay_write)
         if self.W is not None:
-            self._hebbian_update()
+            self._hebbian_update(n_steps=xs.shape[0])
+        if self.adaptive_freq_enabled:
+            self._update_adaptive_freq(xs, n_steps=xs.shape[0])
 
-    def _hebbian_update(self) -> None:
+    def step_many_record(self, xs: np.ndarray) -> np.ndarray:
+        """Like step_many, but records z trajectory per sample.
+
+        Returns shape ``(n_samples, n_oscillators)`` complex —
+        the oscillator state after each sample step. Used for
+        cascaded multi-layer architectures (Lerud 2014):
+        downstream layers receive the per-sample trajectory of
+        upstream layers rather than just the final-state snapshot.
+        """
+        if xs.ndim != 2 or xs.shape[1] != self.n:
+            raise ValueError(
+                f"xs must be (n_samples, {self.n}); got {xs.shape}"
+            )
+        n_samples = xs.shape[0]
+        p = self.p
+        if self.noise_amp > 0.0:
+            noise_re = self._noise_rng.standard_normal((n_samples, self.n))
+            noise_im = self._noise_rng.standard_normal((n_samples, self.n))
+        else:
+            noise_re = np.zeros((n_samples, self.n), dtype=np.float64)
+            noise_im = np.zeros((n_samples, self.n), dtype=np.float64)
+        delay_buffer = (self.delay_buffer
+                        if self.delay_enabled
+                        else np.zeros((0, self.n), dtype=np.complex128))
+        W_eff = self.W if self.W is not None else _EMPTY_W
+        if self.coupling_enabled:
+            C_eff = self.C
+            P_eff = self._P_scratch
+            internal_eff = self._internal_scratch
+            csr_row = self._C_sparse_row_start
+            csr_col = self._C_sparse_col
+            csr_val = self._C_sparse_val
+        else:
+            C_eff = _EMPTY_C
+            P_eff = np.empty(0, dtype=np.complex128)
+            internal_eff = np.empty(0, dtype=np.complex128)
+            csr_row = np.zeros(1, dtype=np.int64)
+            csr_col = np.zeros(0, dtype=np.int64)
+            csr_val = np.zeros(0, dtype=np.complex128)
+        if self.coupling_enabled or self.nonlinear_input:
+            A_eff = self._A_scratch
+        else:
+            A_eff = np.empty(0, dtype=np.complex128)
+        if self.nonlinear_input:
+            P_input_eff = self._P_input_scratch
+            canonical_eff = self._canonical_drive
+        else:
+            P_input_eff = np.empty(0, dtype=np.complex128)
+            canonical_eff = np.empty(0, dtype=np.complex128)
+        xs = np.ascontiguousarray(xs, dtype=np.complex128)
+        z_history = np.empty((n_samples, self.n), dtype=np.complex128)
+        new_delay_write = _step_many_jit(
+            self.z, xs, self.omega,
+            p.alpha, p.beta1, p.beta2, p.delta1, p.delta2, p.epsilon,
+            p.input_gain,
+            W_eff, self.W is not None, self.n,
+            delay_buffer, self._delay_write,
+            self.delay_enabled, self.delay_gain,
+            self.noise_amp, noise_re, noise_im,
+            np.sqrt(self.dt),
+            self.dt,
+            self._k1, self._k2, self._k3, self._k4,
+            self._ztmp, self._wz_scaled,
+            self.last_input_mag, self.last_residual,
+            C_eff, self.coupling_enabled, self.coupling_gain,
+            P_eff, A_eff, internal_eff,
+            self.tau_scale, self.tau_enabled,
+            self.nonlinear_input, P_input_eff, canonical_eff,
+            True, z_history,
+            csr_row, csr_col, csr_val,
+        )
+        if self.delay_enabled:
+            self._delay_write = int(new_delay_write)
+        if self.W is not None:
+            self._hebbian_update(n_steps=xs.shape[0])
+        if self.adaptive_freq_enabled:
+            self._update_adaptive_freq(xs, n_steps=xs.shape[0])
+        return z_history
+
+    def _update_adaptive_freq(self, xs_chunk: np.ndarray,
+                              n_steps: int) -> None:
+        """Adaptive natural frequency update per Roman 2023 (ASHLE).
+
+        Updates each oscillator's natural frequency toward the drive
+        phase rate when driven, with elasticity pulling back toward
+        the original f_0. Called once per step_many chunk; the time
+        scale of frequency dynamics (~seconds) is much slower than
+        chunk size (~ms), so chunk-level Euler integration is
+        sufficient — no per-sample JIT overhead needed.
+        """
+        if not self.adaptive_freq_enabled or n_steps < 1:
+            return
+        # End-of-chunk drive: instantaneous phase at the same moment
+        # self.z is measured (after step_many advances). Using the
+        # mean over a sinusoidal chunk would average to zero and lose
+        # the phase entirely (~|mean_x| ≪ |x_inst| for chunks longer
+        # than a fraction of an oscillation period).
+        last_x = xs_chunk[-1]
+        phi_x = np.angle(last_x)
+        phi_z = np.angle(self.z)
+        # Use the chunk-averaged magnitude as the activation
+        # weight — that is robust to phase rotation and reflects
+        # how strongly this oscillator is being driven over the
+        # window.
+        amp_x = np.abs(xs_chunk).mean(axis=0)
+        # Frequency-learning term: gradient toward sin(φ_x − φ_z) = 0
+        # (i.e., toward phase-aligned, which means same instantaneous
+        # frequency). Scaled by |x| so silent oscillators don't drift.
+        sin_dphi = np.sin(phi_x - phi_z)
+        # Elasticity: pull back toward original f_0_i
+        rel_f = (self.f - self.f_natural) / np.maximum(
+            self.f_natural, 1e-9
+        )
+        elastic = np.exp(rel_f) - 1.0
+        df_dt = self.f * (
+            self.adaptive_lambda_freq * amp_x * sin_dphi
+            - self.adaptive_lambda_elastic * elastic
+        )
+        effective_dt = self.dt * float(n_steps)
+        self.f = self.f + effective_dt * df_dt
+        # Clamp to a physiologically reasonable band around f_0 to
+        # prevent runaway under pathological drive (e.g., DC drives
+        # could push f → 0).
+        f_min = self.adaptive_freq_min_ratio * self.f_natural
+        f_max = self.adaptive_freq_max_ratio * self.f_natural
+        np.clip(self.f, f_min, f_max, out=self.f)
+        # ω in rad/s; keep tau_scale in sync if enabled.
+        self.omega = 2 * np.pi * self.f
+
+    def _hebbian_update(self, n_steps: int = 1) -> None:
         """Euler step on the weight matrix.
 
-        dW_ij/dt = -lambda * W_ij + kappa * z_i * conj(z_j)
+        ``n_steps`` is the number of audio samples represented by
+        this update. ``step()`` (per-sample API) passes 1;
+        ``step_many()`` passes the chunk size. The effective dt of
+        the Hebbian Euler step is ``self.dt * n_steps`` — this
+        keeps the learning rate per unit time consistent regardless
+        of chunk size. Previously the update used self.dt alone,
+        which made step_many learn ``chunk_size``× slower than
+        step for the same effective audio duration.
 
-        Diagonal is kept at zero — an oscillator does not connect to itself.
+        Multi-frequency Hebbian rule per Kim & Large 2021 Eq. 26 /
+        Large 2016 Eq. A2:
+
+            dW_ij/dt = -lambda * W_ij + kappa * P(z_i) * conj(P(z_j))
+
+        where P(z) = z / (1 - √ε z). The P-transform expands z into
+        a series with content at all integer multiples of z's
+        frequency. Therefore the outer product P(z_i)·conj(P(z_j))
+        becomes STATIONARY (time-constant) when oscillators i and j
+        are mode-locked at any small-integer k:m ratio, growing
+        W[i,j] until decay balances it. Non-locked pairs oscillate
+        through the outer product and time-average to zero.
+
+        This is the mechanism that lets W community structure
+        encode harmonic relationships: oscillators at integer
+        ratios of one voice's fundamental develop strong mutual
+        connections, while oscillators at unrelated ratios stay
+        decoupled.
+
+        Reduces to the classical 1:1 Hebbian rule
+        ``ċ_ij = -λ c_ij + κ z_i z̄_j`` (Hoppensteadt-Izhikevich
+        1996b Eq. 14) at low |z|, so existing single-frequency
+        learning behavior is preserved at typical audio amplitudes.
+
+        Diagonal kept at zero — an oscillator does not connect
+        to itself.
+
+        Patent IP: covered by US 8,930,292 (active to 2032) Claims
+        1, 10. For research/personal use: fine. For commercial use
+        a license or a patent-safe variant (cubic damping on c_ij
+        per K&L 2021 Eq. 9 Strategy 2) is needed.
         """
         if self.learn_rate == 0.0 and self.weight_decay == 0.0:
             return
-        outer = np.outer(self.z, self.z.conj())
-        self.W = self.W + self.dt * (
+        p = self.p
+        sqrt_eps = np.sqrt(max(p.epsilon, 1e-9))
+        # P-transforms with denominator guard. The 1e-12 keeps the
+        # division stable even if |z| approaches 1/√ε (the canonical
+        # model's hard amplitude limit).
+        z_P = self.z / (1.0 - sqrt_eps * self.z + 1e-12)
+        z_conj_P = self.z.conj() / (1.0 - sqrt_eps * self.z.conj()
+                                     + 1e-12)
+        # Outer product: pairs P(z_i) with conj(P(z_j)). Per K&L
+        # 2021, this is dominated locally by the lowest-order
+        # resonant monomial for each k:m ratio.
+        outer = np.outer(z_P, z_conj_P)
+        effective_dt = self.dt * float(n_steps)
+        self.W = self.W + effective_dt * (
             self.learn_rate * outer - self.weight_decay * self.W
         )
         np.fill_diagonal(self.W, 0.0)

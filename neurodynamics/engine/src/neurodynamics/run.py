@@ -115,6 +115,20 @@ def _build_grfnn(section: dict) -> GrFNN:
         coupling_gain=coupling_gain,
         per_oscillator_tau=bool(section.get("per_oscillator_tau", False)),
         tau_reference_hz=float(section.get("tau_reference_hz", 1.0)),
+        nonlinear_input=bool(section.get("nonlinear_input", False)),
+        adaptive_frequency=bool(section.get("adaptive_frequency", False)),
+        adaptive_lambda_freq=float(
+            section.get("adaptive_lambda_freq", 4.0)
+        ),
+        adaptive_lambda_elastic=float(
+            section.get("adaptive_lambda_elastic", 2.0)
+        ),
+        adaptive_freq_min_ratio=float(
+            section.get("adaptive_freq_min_ratio", 0.5)
+        ),
+        adaptive_freq_max_ratio=float(
+            section.get("adaptive_freq_max_ratio", 2.0)
+        ),
     )
 
 
@@ -160,9 +174,12 @@ def state_path_for(cfg: dict, cfg_dir: Path, audio_path: Path) -> Path:
 
 
 def run(config_path: Path, audio_override: Path | None = None,
-        output_override: Path | None = None) -> None:
+        output_override: Path | None = None,
+        disable_osc: bool = False) -> None:
     with open(config_path, "rb") as f:
         cfg = tomllib.load(f)
+    if disable_osc:
+        cfg.setdefault("osc", {})["enabled"] = False
 
     cfg_dir = config_path.parent
     if audio_override is not None:
@@ -225,6 +242,26 @@ def run(config_path: Path, audio_override: Path | None = None,
     pitch_bands = fb.filter(audio)  # (n_channels, n_samples)
     W_pitch = channel_to_oscillator_weights(fb.fc, pitch_net.f)
 
+    # Phase 3 brainstem cascade (per Lerud 2014). Optional layer
+    # between gammatone and pitch. When enabled, gammatone bands
+    # drive the brainstem (which generates harmonics + combination
+    # tones via canonical input + integer-ratio coupling), and the
+    # brainstem's state drives the pitch (cortex) layer.
+    bs_cfg = cfg.get("brainstem_grfnn", {})
+    brainstem_enabled = bool(bs_cfg.get("enabled", False))
+    brainstem_net = _build_grfnn(bs_cfg) if brainstem_enabled else None
+    if brainstem_net is not None:
+        W_brainstem = channel_to_oscillator_weights(fb.fc, brainstem_net.f)
+        if (brainstem_net.f.shape != pitch_net.f.shape
+                or not np.allclose(brainstem_net.f, pitch_net.f)):
+            raise ValueError(
+                "brainstem_grfnn frequency layout must match pitch_grfnn "
+                "for cascaded multi-layer mode (Lerud 2014 tonotopic "
+                "preservation)"
+            )
+    else:
+        W_brainstem = None
+
     # Output sinks. Per-file output so repeated runs don't stomp.
     snap_hz = cfg["state_log"]["snapshot_hz"]
     snap_interval = 1.0 / snap_hz
@@ -237,6 +274,8 @@ def run(config_path: Path, audio_override: Path | None = None,
                           "pitch": {"f": pitch_net.f}}
     if motor_net is not None:
         layers_meta["motor"] = {"f": motor_net.f}
+    if brainstem_net is not None:
+        layers_meta["brainstem"] = {"f": brainstem_net.f}
     state = StateLog(out_path, layers=layers_meta)
     osc_cfg = cfg["osc"]
     endpoints = [
@@ -284,40 +323,67 @@ def run(config_path: Path, audio_override: Path | None = None,
     }
     next_w_snap = 0.0
 
-    # Time-stepped simulation. We advance both networks on their own clocks
-    # and snapshot at snap_hz.
+    # Time-stepped simulation, chunked by snap_interval so the
+    # step_many JIT path can amortize Python overhead across the
+    # ~1/snap_hz seconds between snapshots. Previously this used
+    # per-sample step() calls, which made the cascade pipeline run
+    # ~10× slower than necessary (each Python-level step pays the
+    # full per-call overhead, even with numba-compiled inner steps).
     n_audio_steps = len(audio)
     rhythm_step = 0
     next_snap = 0.0
+    snap_chunk_samples = max(1, int(round(snap_interval * fs)))
+    rhythm_step_samples = int(round(rhythm_dt * fs))
     print("Running networks…")
     log_every = max(1, n_audio_steps // 20)
-    for i in range(n_audio_steps):
-        t = i / fs
+    # Pre-compute brainstem drives if cascade is enabled.
+    if brainstem_net is not None:
+        bs_drives_all = (W_brainstem @ pitch_bands.astype(np.float64)
+                         ).T.astype(np.complex128)  # (n_samples, n_brainstem)
+    else:
+        pitch_drives_all = (W_pitch @ pitch_bands.astype(np.float64)
+                            ).T.astype(np.complex128)  # (n_samples, n_pitch)
+    cursor = 0
+    while cursor < n_audio_steps:
+        chunk_end = min(cursor + snap_chunk_samples, n_audio_steps)
+        span = chunk_end - cursor
+        t = (chunk_end - 1) / fs  # snapshot moment is end of chunk
 
-        # Pitch network: one step per audio sample.
-        drive_pitch = W_pitch @ pitch_bands[:, i].astype(np.float64)
-        # Cast to complex — real drive injects to real component.
-        pitch_net.step(drive_pitch.astype(np.complex128))
-
-        # Rhythm network: advance when its own clock catches up. If the
-        # motor layer is active, we advance both in lockstep and wire up
-        # bidirectional coupling inline.
-        while rhythm_step * rhythm_dt <= t and rhythm_step < n_rhythm_steps:
-            drive_r = np.full(
-                rhythm_net.n,
-                rhythm_drive_stepped[rhythm_step],
-                dtype=np.complex128,
+        # Pitch / cascade
+        if brainstem_net is not None:
+            bs_traj = brainstem_net.step_many_record(
+                bs_drives_all[cursor:chunk_end].copy()
             )
-            if motor_net is not None and backward_gain != 0.0:
-                drive_r = drive_r + backward_gain * motor_net.z
-            rhythm_net.step(drive_r)
-            if motor_net is not None:
-                motor_drive = forward_gain * rhythm_net.z
-                motor_net.step(motor_drive)
-            rhythm_step += 1
+            pitch_net.step_many(bs_traj)
+        else:
+            pitch_net.step_many(pitch_drives_all[cursor:chunk_end].copy())
 
-        # Snapshot.
-        if t >= next_snap:
+        # Rhythm + motor — chunked at rhythm_dt rate, may span multiple
+        # rhythm steps within this snap-chunk.
+        # Collect rhythm drive samples for this chunk
+        rhythm_samples_for_chunk: list[float] = []
+        target_rhythm_step = int((t + rhythm_dt) / rhythm_dt)
+        while rhythm_step < min(target_rhythm_step, n_rhythm_steps):
+            rhythm_samples_for_chunk.append(
+                float(rhythm_drive_stepped[rhythm_step])
+            )
+            rhythm_step += 1
+        if rhythm_samples_for_chunk:
+            r_arr = np.array(rhythm_samples_for_chunk, dtype=np.complex128)
+            drives_r = np.tile(r_arr[:, None], (1, rhythm_net.n))
+            if motor_net is not None and backward_gain != 0.0:
+                drives_r = drives_r + backward_gain * motor_net.z
+            rhythm_net.step_many(drives_r)
+            if motor_net is not None:
+                motor_drives = (forward_gain
+                                * np.tile(rhythm_net.z[None, :],
+                                          (len(r_arr), 1)))
+                motor_net.step_many(motor_drives)
+
+        cursor = chunk_end
+
+        # Snapshot at end of every chunk (chunk size = snap_interval)
+        if True:
             rp = rhythm_net.phantom_mask(
                 phantom_cfg["amp_thresh"], phantom_cfg["drive_thresh"])
             pp = pitch_net.phantom_mask(
@@ -328,6 +394,15 @@ def run(config_path: Path, audio_override: Path | None = None,
             state.snapshot(t, "pitch", pitch_net.z.copy(), pp,
                            pitch_net.last_input_mag,
                            pitch_net.last_residual)
+            if brainstem_net is not None:
+                bp = brainstem_net.phantom_mask(
+                    phantom_cfg["amp_thresh"], phantom_cfg["drive_thresh"])
+                state.snapshot(t, "brainstem", brainstem_net.z.copy(), bp,
+                               brainstem_net.last_input_mag,
+                               brainstem_net.last_residual)
+                osc.send_layer("brainstem", brainstem_net.z, bp,
+                               brainstem_net.last_input_mag,
+                               brainstem_net.last_residual)
             osc.send_layer("rhythm", rhythm_net.z, rp,
                            rhythm_net.last_input_mag,
                            rhythm_net.last_residual)
@@ -422,8 +497,8 @@ def run(config_path: Path, audio_override: Path | None = None,
                     slot["times"].append(t)
             next_w_snap += w_snap_interval
 
-        if i % log_every == 0:
-            pct = 100.0 * i / n_audio_steps
+        if cursor % (log_every * snap_chunk_samples // max(snap_chunk_samples, 1)) < snap_chunk_samples:
+            pct = 100.0 * cursor / n_audio_steps
             print(f"  {pct:5.1f}%  t={t:6.2f}s  "
                   f"|z_r|={np.abs(rhythm_net.z).max():.3f}  "
                   f"|z_p|={np.abs(pitch_net.z).max():.3f}")
@@ -473,8 +548,13 @@ def main() -> None:
                     help="Audio file to process (overrides config)")
     ap.add_argument("--output", type=Path, default=None,
                     help="State output path (default: output/<audio_stem>.parquet)")
+    ap.add_argument("--no-osc", action="store_true",
+                    help="Disable OSC broadcasting (batch mode). Saves ~30%% "
+                         "wall time on cascade-enabled pipelines by skipping "
+                         "pythonosc serialization. No effect on parquet output.")
     args = ap.parse_args()
-    run(args.config, audio_override=args.audio, output_override=args.output)
+    run(args.config, audio_override=args.audio,
+        output_override=args.output, disable_osc=args.no_osc)
 
 
 if __name__ == "__main__":

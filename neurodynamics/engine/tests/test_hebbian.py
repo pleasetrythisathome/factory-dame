@@ -110,18 +110,24 @@ class TestHebbianLearning:
         )
 
     def test_weights_are_bounded(self):
-        """Even under extreme drive, Hebbian weights must not diverge."""
+        """Even under extreme drive, Hebbian weights must stay
+        finite. Bound depends on regime — the multi-frequency
+        Hebbian rule (Kim & Large 2021 Eq. 26) amplifies near
+        saturation because P(z) = z/(1-√ε z) → ∞ as |z| → 1/√ε.
+
+        With ε=1 and clamp |z| < 0.98, |P(z)| ≈ 49 at saturation;
+        the fixed point under κ=10, λ=0.5 is |P|² κ/λ ≈ 48000.
+        Allow ~2× overshoot — the integrator isn't strictly at the
+        fixed point and the test deliberately uses extreme params.
+        """
         net = GrFNN(
             n_oscillators=3, low_hz=5.0, high_hz=5.0, dt=0.001,
             params=GrFNNParams(alpha=-0.05, input_gain=10.0),
             hebbian=True, learn_rate=10.0, weight_decay=0.5,
         )
         _drive_at(net, freq=5.0, amp=1.0, duration_s=6.0)
-        assert np.isfinite(net.W).all()
-        # With |z| saturated near 1 and decay=0.5, learn=10, the fixed point
-        # for |W| is |z|^2 * kappa / lambda = 1 * 10 / 0.5 = 20. Accept a
-        # little overshoot — the integrator isn't at strict fixed-point yet.
-        assert np.abs(net.W).max() < 25.0
+        assert np.isfinite(net.W).all(), "weights diverged to NaN/Inf"
+        assert np.abs(net.W).max() < 1e5
 
 
 class TestHebbianCoupling:

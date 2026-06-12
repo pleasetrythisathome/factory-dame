@@ -145,7 +145,32 @@ class LiveEngine:
                       if m_cfg.get("enabled", False) else None)
         self.motor_forward = float(m_cfg.get("forward_gain", 0.0))
         self.motor_backward = float(m_cfg.get("backward_gain", 0.0))
+        # Phase 3 brainstem layer (per Lerud 2014). Parallel to
+        # pitch; same input, critical-Hopf dynamics with canonical
+        # input + coupling enabled. Demonstrates harmonic emergence
+        # in a separate visualizable bank from the voice-extraction
+        # pitch bank. See config.toml [brainstem_grfnn].
+        bs_cfg = cfg.get("brainstem_grfnn", {})
+        self.brainstem = (_build_grfnn(bs_cfg)
+                          if bs_cfg.get("enabled", False) else None)
         self.W_pitch = channel_to_oscillator_weights(self.fb.fc, self.pitch.f)
+        if self.brainstem is not None:
+            self.W_brainstem = channel_to_oscillator_weights(
+                self.fb.fc, self.brainstem.f,
+            )
+            # Cascade mode requires identical frequency layouts so
+            # brainstem.z trajectory projects 1-to-1 into pitch
+            # drives. Per Lerud 2014, each higher layer in the
+            # auditory pathway preserves tonotopic organization.
+            if (self.brainstem.f.shape != self.pitch.f.shape
+                    or not np.allclose(self.brainstem.f, self.pitch.f)):
+                raise ValueError(
+                    "brainstem_grfnn frequency layout must match "
+                    "pitch_grfnn for cascaded multi-layer mode "
+                    "(per Lerud 2014 tonotopic preservation)"
+                )
+        else:
+            self.W_brainstem = None
         osc_cfg = cfg["osc"]
         endpoints = [
             (e["host"], int(e["port"]))
@@ -197,9 +222,23 @@ class LiveEngine:
         env = self.fb.envelope(audio_chunk)          # (n_channels, n_samples)
         pitch_bands = self.fb.filter(audio_chunk)    # (n_channels, n_samples)
 
-        # 2. Pitch drives: per-sample complex input to the pitch GrFNN.
-        pitch_drives = (self.W_pitch @ pitch_bands.astype(np.float64)).T
-        pitch_drives = pitch_drives.astype(np.complex128)
+        # 2. Compute drives. When brainstem is enabled, pipeline is
+        # cascaded per Lerud 2014: gammatone → brainstem → pitch.
+        # Pitch sees brainstem's per-sample z trajectory rather than
+        # raw band projection — harmonics generated in brainstem
+        # propagate to pitch via tonotopic 1-to-1 feedforward.
+        #
+        # Without brainstem: gammatone → pitch directly (parallel-
+        # path used when brainstem disabled).
+        if self.brainstem is not None:
+            brainstem_drives = (
+                self.W_brainstem @ pitch_bands.astype(np.float64)
+            ).T.astype(np.complex128)
+            pitch_drives = None  # filled per-chunk from brainstem
+        else:
+            pitch_drives = (self.W_pitch @ pitch_bands.astype(np.float64)).T
+            pitch_drives = pitch_drives.astype(np.complex128)
+            brainstem_drives = None
 
         # 3. Rhythm drive: onset signal = half-wave-rectified derivative
         #    of summed envelopes.
@@ -225,7 +264,8 @@ class LiveEngine:
         #    we step_many across contiguous spans between snapshots,
         #    then emit OSC at each snapshot boundary.
         sample = 0
-        n_samples = pitch_drives.shape[0]
+        n_samples = (brainstem_drives.shape[0] if self.brainstem is not None
+                     else pitch_drives.shape[0])
         while sample < n_samples:
             # Samples until the next snapshot tick.
             samples_until_snap = self._next_snap - self._sample_count
@@ -234,7 +274,16 @@ class LiveEngine:
                 chunk_end = n_samples
             span = chunk_end - sample
             if span > 0:
-                self.pitch.step_many(pitch_drives[sample:chunk_end])
+                if self.brainstem is not None:
+                    # Cascade: brainstem advances and records per-sample
+                    # z trajectory; pitch is driven by that trajectory.
+                    bs_traj = self.brainstem.step_many_record(
+                        brainstem_drives[sample:chunk_end].copy()
+                    )
+                    # 1-to-1 tonotopic projection (verified at init)
+                    self.pitch.step_many(bs_traj)
+                else:
+                    self.pitch.step_many(pitch_drives[sample:chunk_end])
                 # Advance rhythm in sub-steps of rhythm_step_samples.
                 self._advance_rhythm(
                     rhythm_drive, sample, chunk_end,
@@ -292,6 +341,13 @@ class LiveEngine:
         self.osc.send_layer("pitch", self.pitch.z, rp,
                              self.pitch.last_input_mag,
                              self.pitch.last_residual)
+        if self.brainstem is not None:
+            bp = self.brainstem.phantom_mask(
+                self.phantom_cfg["amp_thresh"],
+                self.phantom_cfg["drive_thresh"])
+            self.osc.send_layer("brainstem", self.brainstem.z, bp,
+                                 self.brainstem.last_input_mag,
+                                 self.brainstem.last_residual)
         if self.motor is not None:
             mp = self.motor.phantom_mask(
                 self.phantom_cfg["amp_thresh"],

@@ -1,6 +1,31 @@
 # Neurodynamics engine
 
-An oscillator-bank engine implementing Neural Resonance Theory (Large et al. 2025, *Musical neurodynamics*, Nat. Rev. Neurosci.) with a live-audio-to-modular bridge built on top. Audio in → phase-locking oscillator dynamics → voice decomposition → OSC stream → CV/MIDI to a eurorack modular. No DAW required at any point.
+An oscillator-bank engine implementing Neural Resonance Theory (Harding/Kim/Large et al. 2025, *Musical neurodynamics*, Nat. Rev. Neurosci.) with a live-audio-to-modular bridge built on top. Audio in → phase-locking oscillator dynamics → voice decomposition → OSC stream → CV/MIDI to a eurorack modular. No DAW required at any point.
+
+## Architecture (multi-layer cascade)
+
+```
+audio
+ └→ Gammatone filterbank (cochlea, passive bandpass)
+      └→ Brainstem GrFNN  ──  Lerud 2014: critical Hopf + canonical input +
+        │                     integer-ratio coupling. Generates harmonics,
+        │                     subharmonics, combination tones.
+        └→ Pitch GrFNN  ────  Cortex layer: multi-frequency Hebbian learning
+             │                (Kim & Large 2021 Eq. 26). W matrix learns
+             │                harmonic-stack community structure.
+             └→ Voice extraction ── Phase-coherence clustering + Phase 4
+                                    harmonic merging. Per-voice OSC out.
+
+audio
+ └→ Onset envelope
+      └→ Rhythm GrFNN  ─────  Sensory tempo bank
+           └→ Motor GrFNN  ──  ASHLE adaptive frequencies (Roman 2023):
+                                f tracks drive via Hebbian frequency rule,
+                                elasticity pulls back to log-spaced default.
+                                Sensory↔motor bidirectional per Large 2015.
+```
+
+See `docs/PHASE_PLAN.md` for the full architecture rationale and `docs/literature/` for paper-by-paper summaries with cited equations.
 
 ## The product loop
 
@@ -115,8 +140,9 @@ Hardware falls back to mock mode when a device or port isn't present — the rou
 `config.toml` is fully commented; the important blocks:
 
 - `[audio]`, `[cochlea]` — sample rate + cochlear filterbank
-- `[rhythm_grfnn]`, `[pitch_grfnn]` — main oscillator banks (Hopf params, Hebbian, delay, noise)
-- `[motor_grfnn]` — optional predictive motor layer, bidirectionally coupled to rhythm
+- `[rhythm_grfnn]`, `[pitch_grfnn]` — main oscillator banks (Hopf params, Hebbian, delay, noise, canonical nonlinear input)
+- `[brainstem_grfnn]` — Phase 3 nonlinear cascade layer (Lerud 2014). Sits between cochlea and pitch in the feedforward pipeline. Generates harmonics + combination tones via canonical input + integer-ratio coupling. Same tonotopic frequency layout as pitch.
+- `[motor_grfnn]` — predictive motor layer, bidirectionally coupled to rhythm, with optional ASHLE adaptive natural frequencies (Roman 2023)
 - `[phantom]` — amplitude/drive thresholds that distinguish phantom from driven regime
 - `[state_log]` — snapshot rate + output directory
 - `[osc]` — broadcast endpoints (engine fans out to all listed)
@@ -138,7 +164,7 @@ port = 57121              # nd-view --live
 
 ## Signals — OSC schema
 
-Every snapshot (60 Hz default) broadcasts the following. Layers: `pitch`, `rhythm`, `motor` (if enabled).
+Every snapshot (60 Hz default) broadcasts the following. Layers: `pitch`, `rhythm`, `motor` (if enabled), `brainstem` (if enabled).
 
 | Path                              | Type           | Meaning |
 |-----------------------------------|----------------|---------|
@@ -187,12 +213,42 @@ seed = 0
 ```
 
 ### Motor layer (`[motor_grfnn]`)
-Two-layer pulse network. Second rhythm-scale GrFNN bidirectionally coupled to the sensory rhythm network. Sustains pulse activity across audio silences (the "felt beat" prediction).
+Two-layer pulse network (Large 2015 Fig. 4C). Second rhythm-scale GrFNN bidirectionally coupled to the sensory rhythm network. Sustains pulse activity across audio silences (the "felt beat" prediction). Optional ASHLE adaptive natural frequencies (Roman 2023) — each motor oscillator's natural frequency tracks the drive rate via Hebbian frequency learning, with elasticity pulling back to its log-spaced default.
 ```toml
 enabled = true
 forward_gain = 0.1
 backward_gain = 0.03
+# ASHLE — Roman 2023
+adaptive_frequency = true
+adaptive_lambda_freq = 4.0
+adaptive_lambda_elastic = 2.0
 ```
+
+### Brainstem layer (`[brainstem_grfnn]`)
+Phase 3 cascade layer per Lerud 2014. Sits between gammatone and pitch in the offline (`nd-run`) and live (`nd-live`) pipelines. Runs in the **critical Hopf** regime (α=0, β₁=0, β₂=-1) with the canonical nonlinear input form `P(ε,x)·A(ε,z̄)` and integer-ratio coupling enabled — together these generate the harmonic + combination-tone enrichment that distinguishes NRT from a linear filterbank.
+
+Validated via `tests/test_ffr_shape.py`: drive a G2+E3 consonant interval (99 + 166 Hz) and the cascade reproduces the Lerud 2014 Fig. 4 signature — peaks at f1, f2, 2f1, 2f2, f2-f1 (difference tone), f1+f2 (summation tone), and 2f1-f2 (cubic distortion product) — none of which are in the stimulus.
+
+```toml
+enabled = true
+n_oscillators = 278            # same tonotopic layout as pitch (Lerud 2014)
+low_hz = 20.0
+high_hz = 4186.0
+alpha = 0.0                    # critical Hopf — "always phase-locks at any drive amplitude"
+beta1 = 0.0                    # no cubic; only quartic saturating
+beta2 = -1.0
+epsilon = 0.5
+nonlinear_input = true         # P(ε,x)·A(ε,z̄) — Large 2010 Eq. 15
+[brainstem_grfnn.coupling]
+enabled = true                  # integer-ratio kernel D — US 7,376,562 (public domain)
+gain = 0.5
+```
+
+### Canonical nonlinear input + integer-ratio coupling (per-layer)
+Both `pitch_grfnn`, `brainstem_grfnn`, and `rhythm_grfnn` accept `nonlinear_input = true/false` and the `[<layer>.coupling]` block. Together these implement the multi-frequency phenomena (harmonic emergence, missing fundamental, missing pulse) per Kim & Large 2019 / Lerud 2014.
+
+### Multi-frequency Hebbian learning
+The Hebbian update on `[<layer>.hebbian]`-enabled layers uses the multi-frequency form per Kim & Large 2021 Eq. 26: `ċ_ij = -γ c_ij + κ · P(z_i)·P(z_j)*` where `P(z) = z/(1-√ε z)`. The W matrix learns connections at all integer-ratio coactivity relationships, not just 1:1 — visible as community structure (harmonic stacks) after a few seconds of training.
 
 ## Voice extraction (Phase 1-3 of `task-011`)
 
