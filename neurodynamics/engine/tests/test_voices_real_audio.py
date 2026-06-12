@@ -104,6 +104,7 @@ def _extract_voices_over_track(
     *,
     window_seconds: float = 2.5,
     feature_hz: float = 5.0,
+    config: "VoiceClusteringConfig | None" = None,
 ) -> list[list[dict]]:
     """Run extract_voices + extract_voice_rhythms + extract_voice_motor
     over every feature frame in a parquet and return per-frame voice
@@ -113,6 +114,16 @@ def _extract_voices_over_track(
     m_times, m_amps, m_phases, m_freqs = _load_motor_layer(parquet_path)
     if len(p_times) < 2:
         return []
+    # Learned Hebbian W (final, whole-track) drives W-community voice
+    # clustering — voices.extract_voices uses it as the harmonic-binding
+    # signal. Saved alongside the parquet by nd-run. Absent → extractor
+    # falls back to the envelope-correlation path.
+    w_pitch = None
+    weights_path = parquet_path.with_suffix(".weights.npz")
+    if weights_path.exists():
+        with np.load(weights_path) as wz:
+            if "pitch_W" in wz.files:
+                w_pitch = wz["pitch_W"]
     n = min(len(p_times), len(r_times))
     if m_times is not None:
         n = min(n, len(m_times))
@@ -144,8 +155,9 @@ def _extract_voices_over_track(
             frame_hz=float(snap_hz),
             motor_z=motor_z,
             motor_freqs=m_freqs if m_times is not None else None,
+            w_pitch=w_pitch,
         )
-        voice_state = extract_voices(sw, prev_state=voice_state)
+        voice_state = extract_voices(sw, prev_state=voice_state, config=config)
         voice_state = extract_voice_rhythms(sw, voice_state)
         voice_state = extract_voice_motor(sw, voice_state)
         voices_per_step.append([
@@ -233,10 +245,14 @@ def test_voice_average_lifetime_is_meaningful(slug, track):
 
 
 @pytest.mark.parametrize("slug,track", _tracklist_ids())
-def test_voice_count_bounded_below_twenty(slug, track):
-    """No frame should report > 20 voices — that's pathological
-    over-clustering. Catches regressions in cluster threshold or
-    noise floor tuning."""
+def test_voice_count_bounded_below_pathological(slug, track):
+    """No frame should report > 15 voices — that's pathological
+    over-clustering. With W-community extraction (clustering on the
+    learned Hebbian harmonic structure) dense music peaks at ~7-11
+    simultaneous voices even with the Lerud 2014 cascade enriching the
+    pitch bank; runaway clustering (the pre-W-community failure, which
+    hit 19-30) trips this gate. NOT a loose masking bound — it sits
+    just above observed maxima."""
     parquet = STATE_DIR / f"{slug}.parquet"
     if not parquet.exists():
         pytest.skip(f"{parquet} not present — run rip_corpus")
@@ -244,9 +260,46 @@ def test_voice_count_bounded_below_twenty(slug, track):
     if not voices_per_step:
         pytest.skip(f"{slug} parquet has no pitch data")
     max_count = max((len(v) for v in voices_per_step), default=0)
-    assert max_count <= 20, (
+    assert max_count <= 15, (
         f"{slug}: max simultaneous voices {max_count} — likely the "
         f"noise floor or correlation threshold is too loose"
+    )
+
+
+@pytest.mark.parametrize("slug,track", _tracklist_ids())
+def test_voice_center_freq_is_stable(slug, track):
+    """A tracked voice's pitch should not wander wildly frame to frame.
+    For each persistent voice ID we measure the spread (in semitones)
+    of its center frequency around its own median; the per-track median
+    spread should be small and the 90th percentile bounded. This is the
+    quantitative "voices stop jumping around" gate — before W-community
+    extraction + dominant-peak fundamentals + log-frequency smoothing,
+    median spread ran ~1.2 st with a p90 near 2.7 st (voices visibly
+    hopping octaves); now it sits well under that."""
+    parquet = STATE_DIR / f"{slug}.parquet"
+    if not parquet.exists():
+        pytest.skip(f"{parquet} not present — run rip_corpus")
+    voices_per_step = _extract_voices_over_track(parquet)
+    if not voices_per_step:
+        pytest.skip(f"{slug} parquet has no pitch data")
+    id_freqs: dict[int, list[float]] = {}
+    for frame in voices_per_step:
+        for v in frame:
+            id_freqs.setdefault(v["id"], []).append(v["center_freq"])
+    spreads = []
+    for freqs in id_freqs.values():
+        if len(freqs) >= 5:  # only voices that persist long enough
+            f = np.array(freqs, dtype=np.float64)
+            semis = 12.0 * np.log2(f / np.median(f))
+            spreads.append(float(semis.std()))
+    if not spreads:
+        pytest.skip(f"{slug} had no persistent voices to measure")
+    spreads = np.array(spreads)
+    median_spread = float(np.median(spreads))
+    p90_spread = float(np.percentile(spreads, 90))
+    assert median_spread < 1.4 and p90_spread < 2.2, (
+        f"{slug}: center-freq spread median={median_spread:.2f} st "
+        f"p90={p90_spread:.2f} st — voices are wandering (jitter regression)"
     )
 
 
