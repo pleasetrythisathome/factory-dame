@@ -1,3 +1,14 @@
 {
-  "enabledMcpjsonServers" : [ "aswritten" ]
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p /Users/scarletdame/Code/fabrication/factory-dame/neurodynamics/engine/docs/literature/_pdfs)",
+      "Bash(cp /Users/scarletdame/.claude/projects/-Users-scarletdame-Code-fabrication-factory-dame/19f666e9-8fa8-412e-b420-379579d5101a/tool-results/webfetch-1778447083721-upxyes.pdf /Users/scarletdame/Code/fabrication/factory-dame/neurodynamics/engine/docs/literature/_pdfs/lerud2014_brainstem.pdf)",
+      "Bash(cp /Users/scarletdame/.claude/projects/-Users-scarletdame-Code-fabrication-factory-dame/19f666e9-8fa8-412e-b420-379579d5101a/tool-results/webfetch-1778447038705-jpyafw.pdf /Users/scarletdame/Code/fabrication/factory-dame/neurodynamics/engine/docs/literature/_pdfs/tal2017_missing_pulse.pdf)",
+      "Bash(cp /Users/scarletdame/.claude/projects/-Users-scarletdame-Code-fabrication-factory-dame/19f666e9-8fa8-412e-b420-379579d5101a/tool-results/webfetch-1778453594145-gdwuqa.pdf /Users/scarletdame/Code/fabrication/factory-dame/neurodynamics/engine/docs/literature/_pdfs/hoppensteadt_izhikevich_1996b_learning.pdf)",
+      "Bash(cp /Users/scarletdame/.claude/projects/-Users-scarletdame-Code-fabrication-factory-dame/19f666e9-8fa8-412e-b420-379579d5101a/tool-results/webfetch-1778453600893-f74wj9.pdf /Users/scarletdame/Code/fabrication/factory-dame/neurodynamics/engine/docs/literature/_pdfs/zilany_bruce_carney_2014.pdf)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "aswritten"
+  ]
 }
