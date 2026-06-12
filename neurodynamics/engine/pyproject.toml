@@ -42,3 +42,8 @@ markers = [
     "slow: tests that run the full pipeline (takes seconds)",
     "regression: compare against stored baseline stats",
 ]
+
+[dependency-groups]
+dev = [
+    "librosa>=0.11.0",
+]
